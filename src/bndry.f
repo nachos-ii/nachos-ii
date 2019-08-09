@@ -1,0 +1,348 @@
+C
+C***********************************************************************
+C                                                                      *
+C            NACHOS II - A Finite Element Computer Program             *
+C                        for Incompressible Flow Problems              *
+C                                                                      *
+C     Copyright (c) 1986,2019   National Technology & Engineering      *
+C                               Solutions of Sandia, LLC (NTESS)       *
+C                                                                      *
+C                            All rights reserved.                      *
+C                                                                      *
+C     This software is distributed under the BSD 3-Clause License.     *
+C                                                                      *
+C***********************************************************************
+C
+      SUBROUTINE BNDRY (NELM,KIND,NN,NUM,NBC,IBC,BCVAL,NGAUSS,GS1,GSWT, 
+     1X,Y,KUV,FUV,KT,FT,KTQ,FTQ,KTR,FTR,KV1,FV1,KV2,FV2,IBCPT1,IBCPT2,  
+     2IBCPT3)
+C
+C     ******************************************************************
+C
+C     SUBROUTINE TO APPLY BOUNDARY CONDITIONS AND CONSTRUCT BOUNDARY
+C     CONDITION MATRICES
+C
+C     ******************************************************************
+C
+      REAL KUV,KT,KTQ,KTR,KV1,KV2
+      LOGICAL WALL
+C
+      COMMON /PRBDAT/ IAXSYM,ITMDEP,IFORCE,IFREE,IVAR1,IVAR2,IPFUNC,    
+     1                IPNLTY,PNLTY
+      COMMON /ELMDAT/ NNELM(6),NNCOR(6),NNMID(6),NNCTR(6),NSIDET(5),    
+     1                NSIDEQ(7),NNSIDE(6,4,3)
+      COMMON /BCDAT/  BCSET(2,20,2),IPELM,IPNODE,PBC
+C
+      DIMENSION X(*), Y(*)
+      DIMENSION GS1(*), GSWT(*)
+      DIMENSION NBC(30), IBC(30), BCVAL(30)
+      DIMENSION KUV(22,22,4), FUV(22)
+      DIMENSION KT(9,9,4), FT(9), KTQ(9,9), FTQ(9), KTR(9,3,9), FTR(9,3)
+      DIMENSION KV1(9,9,4), FV1(9), KV2(9,9,4), FV2(9)
+C
+      PARAMETER (BIG=1.0E40)
+C
+C     ******************************************************************
+C
+C     INITIALIZE MATRICES AND POINTERS
+C
+      DO 10 I=1,22
+      FUV(I)=0.
+   10 CONTINUE
+      DO 20 I=1,9
+      FT(I)=0.
+      FTQ(I)=0.
+      FV1(I)=0.
+      FV2(I)=0.
+      DO 20 J=1,9
+      KTQ(I,J)=0.
+      DO 20 K=1,3
+      KTR(I,K,J)=0.
+      FTR(J,K)=0.
+   20 CONTINUE
+      IQRAD=0
+      ISIDQR=0
+      ITIMU=0
+      ITIMV=0
+      ITIMP=0
+      ITIMT=0
+      ITIMV1=0
+      ITIMV2=0
+      ICRVU=0
+      ICRVV=0
+      ICRVP=0
+      ICRVT=0
+      ICRVV1=0
+      ICRVV2=0
+      ISIDU=0
+      ISIDV=0
+      ISIDP=0
+      ISIDT=0
+      ISIDV1=0
+      ISIDV2=0
+      IF (NUM.EQ.0) GO TO 390
+      DO 380 II=1,NUM
+      WALL=.FALSE.
+      IN=NBC(II)
+      ITYPE=IBC(II)
+      VALUE=BCVAL(II)
+      GO TO (30, 40, 50, 180, 260, 270, 60, 80, 110, 200, 290, 320, 70, 
+     1100, 190, 280, 310, 140, 230, 350, 370, 130, 220, 340, 360, 250, 2
+     240, 160, 150, 170), ITYPE
+C
+C     --- VELOCITY AND PRESSURE BOUNDARY CONDITIONS ---
+C
+C     U COMPONENT SPECIFIED AT A NODE
+C
+   30 CONTINUE
+      KUV(IN,IN,1)=BIG
+      FUV(IN)=BIG*VALUE
+      GO TO 380
+C
+C     V COMPONENT SPECIFIED AT A NODE
+C
+   40 CONTINUE
+      IN=IN+NN
+      KUV(IN,IN,1)=BIG
+      FUV(IN)=BIG*VALUE
+      GO TO 380
+C
+C     PRESSURE SPECIFIED AT A NODE
+C
+   50 CONTINUE
+      IF (IPFUNC.EQ.1.OR.IPNLTY.EQ.1) THEN
+      IPELM=NELM
+      IPNODE=IN
+      PBC=VALUE
+       ELSE
+      KK=2*NN+IN
+      KUV(KK,KK,1)=BIG
+      FUV(KK)=BIG*VALUE
+      END IF
+      GO TO 380
+C
+C     WALL BOUNDARY CONDITION
+C
+   60 CONTINUE
+      WALL=.TRUE.
+      VALUE=0.
+      GO TO 80
+C
+C     TIME VARYING U VELOCITY
+C
+   70 CONTINUE
+      ITIMU=1
+      ICRVU=INT(VALUE)
+      ISIDU=IN
+      VALUE=1.0
+C
+C     U COMPONENT SPECIFIED ON A SIDE
+C
+   80 CONTINUE
+      DO 90 J=1,3
+      KK=NNSIDE(KIND,IN,J)
+      KUV(KK,KK,1)=BIG
+      FUV(KK)=BIG*VALUE
+   90 CONTINUE
+      IF (WALL) GO TO 110
+      GO TO 380
+C
+C     TIME VARYING V VELOCITY
+C
+  100 CONTINUE
+      ITIMV=1
+      ICRVV=INT(VALUE)
+      ISIDV=IN
+      VALUE=1.0
+C
+C     V COMPONENT SPECIFIED ON A SIDE
+C
+  110 CONTINUE
+      DO 120 J=1,3
+      KK=NNSIDE(KIND,IN,J)+NN
+      KUV(KK,KK,1)=BIG
+      FUV(KK)=BIG*VALUE
+  120 CONTINUE
+      GO TO 380
+C
+C     TIME VARYING NORMAL STRESS
+C
+  130 CONTINUE
+      ITIMP=3
+      ICRVP=INT(VALUE)
+      ISIDP=IN
+      VALUE=1.0
+C
+C     NORMAL STRESS SPECIFIED ON A SIDE
+C
+  140 CONTINUE
+      CALL FLUXBC (KIND,IN,VALUE,NGAUSS,GS1,GSWT,X,Y,FUV,-1)
+      GO TO 380
+C
+C     TIME VARYING SHEAR STRESS
+C
+  150 CONTINUE
+      ITIMP=4
+      ICRVP=INT(VALUE)
+      ISIDP=IN
+      VALUE=1.0
+C
+C     SHEAR STRESS SPECIFIED ON A SIDE
+C
+  160 CONTINUE
+      CALL FLUXBC (KIND,IN,VALUE,NGAUSS,GS1,GSWT,X,Y,FUV,-2)
+      GO TO 380
+C
+C     SLIP BOUNDARY CONDITION
+C
+  170 CONTINUE
+C     NOT OPERATIONAL IN THIS VERSION
+      GO TO 380
+C
+C     --- THERMAL BOUNDARY CONDITIONS ---
+C
+C     TEMPERATURE SPECIFIED AT A NODE
+C
+  180 CONTINUE
+      KT(IN,IN,1)=BIG
+      FT(IN)=BIG*VALUE
+      GO TO 380
+C
+C     TIME VARYING TEMPERATURE
+C
+  190 CONTINUE
+      ITIMT=1
+      ICRVT=INT(VALUE)
+      ISIDT=IN
+      VALUE=1.0
+C
+C     TEMPERATURE SPECIFIED ON A SIDE
+C
+  200 CONTINUE
+      DO 210 J=1,3
+      KK=NNSIDE(KIND,IN,J)
+      KT(KK,KK,1)=BIG
+      FT(KK)=BIG*VALUE
+  210 CONTINUE
+      GO TO 380
+C
+C     TIME VARYING HEAT FLUX
+C
+  220 CONTINUE
+      ITIMT=2
+      ICRVT=INT(VALUE)
+      ISIDT=IN
+      VALUE=1.0
+C
+C     HEAT FLUX SPECIFIED
+C
+  230 CONTINUE
+      CALL FLUXBC (KIND,IN,VALUE,NGAUSS,GS1,GSWT,X,Y,FT,1)
+      GO TO 380
+C
+C     RADIATION BOUNDARY CONDITION
+C
+  240 CONTINUE
+      ISIDQR=IN
+      CALL RADBC (KIND,IN,NGAUSS,GS1,GSWT,X,Y,KTR,FTR)
+      IQRAD=INT(VALUE)
+      GO TO 380
+C
+C     CONVECTIVE BOUNDARY CONDITION
+C
+  250 CONTINUE
+      CALL CONVBC (KIND,IN,VALUE,NGAUSS,GS1,GSWT,X,Y,KTQ,FTQ)
+      GO TO 380
+C
+C     --- AUXILIARY VARIABLE BOUNDARY CONDITIONS ---
+C
+C     VAR1 SPECIFIED AT A NODE
+C
+  260 CONTINUE
+      KV1(IN,IN,1)=BIG
+      FV1(IN)=BIG*VALUE
+      GO TO 380
+C
+C     VAR2 SPECIFIED AT A NODE
+C
+  270 CONTINUE
+      KV2(IN,IN,1)=BIG
+      FV2(IN)=BIG*VALUE
+      GO TO 380
+C
+C     TIME VARYING VAR1
+C
+  280 CONTINUE
+      ITIMV1=1
+      ICRVV1=INT(VALUE)
+      ISIDV1=IN
+      VALUE=1.0
+C
+C     VAR1 SPECIFIED ON A SIDE
+C
+  290 CONTINUE
+      DO 300 J=1,3
+      KK=NNSIDE(KIND,IN,J)
+      KV1(KK,KK,1)=BIG
+      FV1(KK)=BIG*VALUE
+  300 CONTINUE
+      GO TO 380
+C
+C     TIME VARYING VAR2
+C
+  310 CONTINUE
+      ITIMV2=1
+      ICRVV2=INT(VALUE)
+      ISIDV2=IN
+      VALUE=1.0
+C
+C     VAR2 SPECIFIED ON A SIDE
+C
+  320 CONTINUE
+      DO 330 J=1,3
+      KK=NNSIDE(KIND,IN,J)
+      KV2(KK,KK,1)=BIG
+      FV2(KK)=BIG*VALUE
+  330 CONTINUE
+      GO TO 380
+C
+C     TIME VARYING FLUX OF VAR1
+C
+  340 CONTINUE
+      ITIMV1=2
+      ICRVV1=INT(VALUE)
+      ISIDV1=IN
+      VALUE=1.0
+C
+C     FLUX OF VAR1 SPECIFIED
+C
+  350 CONTINUE
+      CALL FLUXBC (KIND,IN,VALUE,NGAUSS,GS1,GSWT,X,Y,FV1,1)
+      GO TO 380
+C
+C     TIME VARYING FLUX OF VAR2
+C
+  360 CONTINUE
+      ITIMV2=2
+      ICRVV2=INT(VALUE)
+      ISIDV2=IN
+      VALUE=1.0
+C
+C     FLUX OF VAR2 SPECIFIED
+C
+  370 CONTINUE
+      CALL FLUXBC (KIND,IN,VALUE,NGAUSS,GS1,GSWT,X,Y,FV2,1)
+C
+  380 CONTINUE
+C
+C     CONSTRUCT BOUNDARY CONDITION POINTERS
+C
+  390 CONTINUE
+      IBCPT1=100000000*ITIMU+10000000*ICRVU+1000000*ISIDU+              
+     1100000*ITIMV+10000*ICRVV+1000*ISIDV+100*ITIMP+10*ICRVP+ISIDP
+      IBCPT2=100000000*ITIMT+10000000*ICRVT+1000000*ISIDT+              
+     1100000*ITIMV1+1000*ICRVV1+1000*ISIDV1+100*ITIMV2+10*ICRVV2+ISIDV2
+      IBCPT3=IQRAD*10+ISIDQR
+C
+      RETURN
+      END

@@ -1,0 +1,259 @@
+C
+C***********************************************************************
+C                                                                      *
+C            NACHOS II - A Finite Element Computer Program             *
+C                        for Incompressible Flow Problems              *
+C                                                                      *
+C     Copyright (c) 1986,2019   National Technology & Engineering      *
+C                               Solutions of Sandia, LLC (NTESS)       *
+C                                                                      *
+C                            All rights reserved.                      *
+C                                                                      *
+C     This software is distributed under the BSD 3-Clause License.     *
+C                                                                      *
+C***********************************************************************
+C
+      SUBROUTINE SNORM (ITYPE,KSTEP,TIME,LISTEL,ICON,UN,SCRTCH)
+C
+C     *****************************************************************
+C
+C     SUBROUTINE TO COMPUTE NORMS, MAXIMUM CHANGES, ETC. FOR THE
+C     OVERALL SOLUTION VECTORS
+C
+C     *****************************************************************
+C
+      COMMON /TAPES/  NIN,NOUT,NTP0,NTP1,NTP2,NTP3,NTP4,NTP5,NTP6,NTP7, 
+     1                NTP8,NTP9,NTP10,NTP11,NTP12,NTP13
+      COMMON /SZDAT/  NUMEL,NUMNOD,NUMVAR,NUMDOF,NODSOL
+      COMMON /LMTDAT/ MAXELM,MAXNOD,MAXBC,MAXEDG,MAXMAT,MAXNPT,MAXPLT,  
+     1                MAXBRY,MAXBLK
+      COMMON /PRBDAT/ IAXSYM,ITMDEP,IFORCE,IFREE,IVAR1,IVAR2,IPFUNC,    
+     1                IPNLTY,PNLTY
+      COMMON /NORM/   UMAX,VMAX,TMAX,V1MAX,V2MAX
+      COMMON /ANORM/  ANRMU,ANRMV,ANRMUV,ANRMT,ANRMX1,ANRMX2
+C
+      DIMENSION ICON(NUMEL,*), LISTEL(*)
+      DIMENSION UN(NUMNOD,*), SCRTCH(NUMNOD,*)
+C
+C     *****************************************************************
+C
+C     FIND MAX VELOCITIES IN NEW SOLUTION VECTOR
+C
+      UMAX=0.
+      VMAX=0.
+      CALL MAXMIN (LISTEL,ICON,1,SCRTCH(1,1),2,UMAX,UMIN,NELUMX,NODUMX, 
+     1NELUMN,NODUMN)
+      CALL MAXMIN (LISTEL,ICON,2,SCRTCH(1,2),2,VMAX,VMIN,NELVMX,NODVMX, 
+     1NELVMN,NODVMN)
+      IF (ABS(UMIN).GT.ABS(UMAX)) THEN
+      UMAX=UMIN
+      NELUMX=NELUMN
+      NODUMX=NODUMN
+      END IF
+      IF (ABS(VMIN).GT.ABS(VMAX)) THEN
+      VMAX=VMIN
+      NELVMX=NELVMN
+      NODVMX=NODVMN
+      END IF
+      UVMAX=SQRT(UMAX**2+VMAX**2)
+C
+C     FIND MAX CHANGE IN VELOCITY FROM N TO N+1
+C
+      UVDIFF=0.
+      DO 10 I=1,NUMNOD
+      A=SQRT(SCRTCH(I,1)**2+SCRTCH(I,2)**2)
+      B=SQRT(UN(I,1)**2+UN(I,2)**2)
+      DIFF=ABS(A-B)
+      IF (DIFF.GT.UVDIFF) THEN
+      UVDIFF=DIFF
+      IDIFF=I
+      END IF
+   10 CONTINUE
+      DO 20 I=1,NUMEL
+      NELDIF=I
+      DO 20 J=1,MAXNPT
+      NODDIF=J
+      IF (IDIFF.EQ.ABS(ICON(I,J))) GO TO 30
+   20 CONTINUE
+   30 CONTINUE
+C
+C     COMPUTE NORMS ON CHANGE IN VELOCITY FROM N TO N+1
+C
+      USUM=0.
+      VSUM=0.
+      DO 40 I=1,NUMNOD
+      A=(SCRTCH(I,1)-UN(I,1))**2
+      B=(SCRTCH(I,2)-UN(I,2))**2
+      USUM=USUM+A
+      VSUM=VSUM+B
+   40 CONTINUE
+      IF (UVMAX.LT.1.0E-10) UVMAX=1.0
+      ANRMU=SQRT(USUM)/UVMAX
+      ANRMV=SQRT(VSUM)/UVMAX
+      ANRMUV=SQRT(ANRMU**2+ANRMV**2)
+C
+C     PRINT VELOCITY DATA
+C
+      WRITE (NOUT, 180) KSTEP
+      IF (ITMDEP.EQ.1) WRITE (NOUT, 170) TIME
+      WRITE (NOUT, 190) UVDIFF,NELDIF,NODDIF
+      WRITE (NOUT, 200) UMAX,NELUMX,NODUMX
+      WRITE (NOUT, 210) VMAX,NELVMX,NODVMX
+      WRITE (NOUT, 220) ANRMU,ANRMV,ANRMUV
+      IF (ITYPE.EQ.1) RETURN
+C
+C     FIND MAX TEMPERATURE, ETC. IN NEW SOLUTION VECTOR
+C
+      TMAX=0.
+      V1MAX=0.
+      V2MAX=0.
+      CALL MAXMIN (LISTEL,ICON,4,SCRTCH(1,4),2,TMAX,TMIN,NELTMX,        
+     1NODTMX,NELTMN,NODTMN)
+      IF (ABS(TMIN).GT.ABS(TMAX)) THEN
+      TMAX=TMIN
+      NELTMX=NELTMN
+      NODTMX=NODTMN
+      END IF
+      IF (IVAR1.EQ.1) THEN
+      CALL MAXMIN (LISTEL,ICON,5,SCRTCH(1,5),2,V1MAX,V1MIN,NLV1MX,      
+     1NDV1MX,NLV1MN,NDV1MN)
+      IF (ABS(V1MIN).GT.ABS(V1MAX)) THEN
+      V1MAX=V1MIN
+      NLV1MX=NLV1MN
+      NDV1MX=NDV1MN
+      END IF
+      END IF
+      IF (IVAR2.EQ.1) THEN
+      CALL MAXMIN (LISTEL,ICON,6,SCRTCH(1,6),2,V2MAX,V2MIN,NLV2MX,      
+     1NDV2MX,NLV2MN,NDV2MN)
+      IF (ABS(V2MIN).GT.ABS(V2MAX)) THEN
+      V2MAX=V2MIN
+      NLV2MX=NLV2MN
+      NDV2MX=NDV2MN
+      END IF
+      END IF
+C
+C     FIND MAX CHANGE IN TEMPERATURE, ETC. FROM N TO N+1
+C
+      TDIFF=0.
+      V1DIFF=0.
+      V2DIFF=0.
+      DO 50 I=1,NUMNOD
+      DIFF=ABS(SCRTCH(I,4)-UN(I,4))
+      IF (DIFF.GT.TDIFF) THEN
+      TDIFF=DIFF
+      ITDIFF=I
+      END IF
+      IF (IVAR1+IVAR2.EQ.0) GO TO 50
+      DIFF=ABS(SCRTCH(I,5)-UN(I,5))
+      IF (DIFF.GT.V1DIFF) THEN
+      V1DIFF=DIFF
+      IV1DFF=I
+      END IF
+      IF (IVAR2.EQ.0) GO TO 50
+      DIFF=ABS(SCRTCH(I,6)-UN(I,6))
+      IF (DIFF.GT.V2DIFF) THEN
+      V2DIFF=DIFF
+      IV2DFF=I
+      END IF
+   50 CONTINUE
+      DO 60 I=1,NUMEL
+      NELTDF=I
+      DO 60 J=1,MAXNPT
+      NODTDF=J
+      IF (ITDIFF.EQ.ABS(ICON(I,J))) GO TO 70
+   60 CONTINUE
+   70 CONTINUE
+      IF (IVAR1.EQ.0) GO TO 110
+      DO 80 I=1,NUMEL
+      NLV1DF=I
+      DO 80 J=1,MAXNPT
+      NDV1DF=J
+      IF (IV1DFF.EQ.ABS(ICON(I,J))) GO TO 90
+   80 CONTINUE
+   90 CONTINUE
+      IF (IVAR2.EQ.0) GO TO 110
+      DO 100 I=1,NUMNOD
+      NLV2DF=I
+      DO 100 J=1,MAXNPT
+      NDV2DF=J
+      IF (IV2DFF.EQ.ABS(ICON(I,J))) GO TO 110
+  100 CONTINUE
+  110 CONTINUE
+C
+C     COMPUTE NORM ON CHANGE IN TEMPERATURE, ETC. FROM N TO N+1
+C
+      TSUM=0.
+      DO 120 I=1,NUMNOD
+      A=(SCRTCH(I,4)-UN(I,4))**2
+      TSUM=TSUM+A
+  120 CONTINUE
+      IF (TMAX.EQ.0.0) TMAX=1.0
+      ANRMT=SQRT(TSUM)/ABS(TMAX)
+C
+      ANRMX1=0.
+      ANRMX2=0.
+      IF (IVAR1.EQ.0) GO TO 150
+      XSUM1=0.
+      DO 130 I=1,NUMNOD
+      A=(SCRTCH(I,5)-UN(I,5))**2
+      XSUM1=XSUM1+A
+  130 CONTINUE
+      IF (V1MAX.EQ.0.0) V1MAX=1.0
+      ANRMX1=SQRT(XSUM1)/ABS(V1MAX)
+C
+      IF (IVAR2.EQ.0) GO TO 150
+      XSUM2=0.
+      DO 140 I=1,NUMNOD
+      A=(SCRTCH(I,6)-UN(I,6))**2
+      XSUM2=XSUM2+A
+  140 CONTINUE
+      IF (V2MAX.EQ.0.0) V2MAX=1.0
+      ANRMX2=SQRT(XSUM2)/ABS(V2MAX)
+  150 CONTINUE
+C
+C     PRINT TEMPERATURE, ETC. DATA
+C
+      WRITE (NOUT, 230) TDIFF,NELTDF,NODTDF
+      WRITE (NOUT, 240) TMAX,NELTMX,NODTMX
+      WRITE (NOUT, 250) ANRMT
+      IF (IVAR1.EQ.0) GO TO 160
+      WRITE (NOUT, 260) V1DIFF,NLV1DF,NDV1DF
+      WRITE (NOUT, 270) V1MAX,NLV1MX,NDV1MX
+      WRITE (NOUT, 280) ANRMX1
+      IF (IVAR2.EQ.0) GO TO 160
+      WRITE (NOUT, 290) V2DIFF,NLV2DF,NDV2DF
+      WRITE (NOUT, 300) V2MAX,NLV2MX,NDV2MX
+      WRITE (NOUT, 310) ANRMX2
+  160 CONTINUE
+      RETURN
+C
+  170 FORMAT (6X,'TIME = ',E15.7)
+  180 FORMAT (//,3X,'** TIME STEP/ITERATION CYCLE =',I4)
+  190 FORMAT (/,10X,'MAX CHANGE IN VELOCITY BETWEEN ITERATIONS/TIME STEP
+     1S=',E15.7,' IN ELEMENT ',I5,' NODE ',I2)
+  200 FORMAT (/,10X,'MAX U VELOCITY IN SOLUTION=',E15.7,' IN ELEMENT ', 
+     1I5,' NODE ',I2)
+  210 FORMAT (/,10X,'MAX V VELOCITY IN SOLUTION=',E15.7,' IN ELEMENT ', 
+     1I5,' NODE ',I2)
+  220 FORMAT (/,10X,'NORMS ON CHANGE IN VELOCITY -',2X,' U NORM=',      
+     1E15.7,2X,' V NORM=',E15.7,3X,' UV NORM=',E15.7)
+  230 FORMAT (/,10X,'MAX CHANGE IN TEMPERATURE BETWEEN ITERATIONS/TIME S
+     1TEPS=',E15.7,' IN ELEMENT ',I5,' NODE ',I2)
+  240 FORMAT (/,10X,'MAX TEMPERATURE IN SOLUTION=',E15.7,' IN ELEMENT ',
+     1I5,' NODE ',I2)
+  250 FORMAT (/,10X,'NORM ON CHANGE IN TEMPERATURE -',2X,' T NORM=',    
+     1E15.7)
+  260 FORMAT (/,10X,'MAX CHANGE IN AUX VARIABLE 1 BETWEEN ITERATIONS/TIM
+     1E STEPS=',E15.7,' IN ELEMENT ',I5,' NODE ',I2)
+  270 FORMAT (/,10X,'MAX AUX VARIABLE 1 IN SOLUTION=',E15.7,' IN ELEMENT
+     1 ',I5,' NODE ',I2)
+  280 FORMAT (/,10X,'NORM ON CHANGE IN AUX VARIABLE 1 -',2X,'X1 NORM=', 
+     1E15.7)
+  290 FORMAT (/,10X,'MAX CHANGE IN AUX VARIABLE 2 BETWEEN ITERATIONS/TIM
+     1E STEPS=',E15.7,' IN ELEMENT ',I5,' NODE ',I2)
+  300 FORMAT (/,10X,'MAX AUX VARIABLE 2 IN SOLUTION=',E15.7,' IN ELEMENT
+     1 ',I5,' NODE ',I2)
+  310 FORMAT (/,10X,'NORM ON CHANGE IN AUX VARIABLE 2 -',2X,'X2 NORM=', 
+     1E15.7)
+      END

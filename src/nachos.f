@@ -1,0 +1,1057 @@
+C
+C***********************************************************************
+C                                                                      *
+C            NACHOS II - A Finite Element Computer Program             *
+C                        for Incompressible Flow Problems              *
+C                                                                      *
+C     Copyright (c) 1986,2019   National Technology & Engineering      *
+C                               Solutions of Sandia, LLC (NTESS)       *
+C                                                                      *
+C                            All rights reserved.                      *
+C                                                                      *
+C     This software is distributed under the BSD 3-Clause License.     *
+C                                                                      *
+C***********************************************************************
+C
+      PROGRAM NACHOS
+C
+C     ******************************************************************
+C
+C                                --NACHOS II--
+C                    AN INCOMPRESSIBLE FLUID DYNAMICS PROGRAM
+C
+C                              DAVID K. GARTLING
+C                         SANDIA NATIONAL LABORATORIES
+C                        ALBUQUERQUE, NEW MEXICO, 87185
+C
+C     THE NACHOS PROGRAM IS DESIGNED FOR THE FINITE ELEMENT ANALYSIS OF
+C     TRANSIENT, TWO-DIMENSIONAL, INCOMPRESSIBLE, VISCOUS FLOW PROBLEMS.
+C     THE CODE ALLOWS THE EFFECTS OF FREE AND FORCED CONVECTION TO BE
+C     INCLUDED; ADDITIONAL EFFECTS THAT ARE REPRESENTABLE BY ONE OR TWO
+C     EQUATIONS OF THE ADVECTION-DIFFUSION TYPE MAY ALSO BE INCLUDED IN
+C     THE SIMULATION. THE PRESENT PROGRAM REPRESENTS A SIGNIFICANTLY
+C     ENHANCED AND UPGRADED VERSION OF THE ORIGINAL CODE.
+C
+C     THE ELEMENT LIBRARY CONTAINS ISOPARAMETRIC/SUBPARAMETRIC
+C     QUADRILATERALS AND TRIANGLES (QUADRATIC VELOCITY AND TEMPERATURE,
+C     BILINEAR OR LINEAR PRESSURE); EITHER A MIXED OR PENALTY GALERKIN
+C     FINITE ELEMENT METHOD MAY BE EMPLOYED WITH THESE ELEMENTS.
+C
+C     THE SOLUTION OF THE NONLINEAR STEADY-STATE PROBLEM IS OBTAINED
+C     VIA A NEWTON-RAPHSON OR SUCCESSIVE SUBSTITUTION PROCEDURE. THE
+C     SOLUTION OF THE TRANSIENT PROBLEM IS VIA AN IMPLICIT INTEGRATION
+C     ALGORITHM.
+C
+C     ******************************************************************
+C
+C                BASIC THEORY      *  SAND86-1816
+C                USERS MANUAL      *  SAND86-1817
+C                EXAMPLE PROBLEMS  *  SAND86-1818
+C
+C     ******************************************************************
+C
+C                ISSUED BY SANDIA NATIONAL LABORATORIES,
+C                       A PRIME CONTRACTOR TO THE
+C                  UNITED STATES DEPARTMENT OF ENERGY
+C
+C     ************************** NOTICE ********************************
+C
+C     THIS COMPUTER SOFTWARE HAS BEEN DEVELOPED UNDER SPONSORSHIP OF THE
+C     DEPARTMENT OF ENERGY. ANY FURTHER DISTRIBUTION BY ANY HOLDER OF
+C     THIS SOFTWARE PACKAGE OR OTHER DATA THEREIN OUTSIDE OF DOE OFFICES
+C     OR OTHER DOE CONTRACTORS, UNLESS OTHERWISE SPECIFICALLY PROVIDED
+C     FOR, IS PROHIBITED WITHOUT THE APPROVAL OF THE NATIONAL ENERGY
+C     SOFTWARE CENTER OR SANDIA NATIONAL LABORATORIES. REQUESTS FROM
+C     OUTSIDE THE DEPARTMENT FOR DOE-DEVELOPED COMPUTER SOFTWARE SHALL
+C     BE DIRECTED TO THE DIRECTOR, NATIONAL ENERGY SOFTWARE CENTER,
+C     ARGONNE NATIONAL LABORATORY, 9700 SOUTH CASS AVENUE, ARGONNE,
+C     ILLINOIS 60439.
+C
+C     ************************** NOTICE ********************************
+C
+C     THIS MATERIAL WAS PREPARED AS AN ACCOUNT OF WORK SPONSORED BY AN
+C     AGENCY OF THE UNITED STATES GOVERNMENT. NEITHER THE UNITED STATES
+C     NOR THE UNITED STATES DEPARTMENT OF ENERGY, NOR ANY OF THEIR
+C     EMPLOYEES, MAKES ANY WARRANTY, EXPRESS OR IMPLIED, OR ASSUMES ANY
+C     LEGAL LIABILITY OR RESPONSIBILITY FOR THE ACCURACY, COMPLETENESS
+C     OR USEFULNESS OF ANY INFORMATION, APPARATUS, PRODUCT OR PROCESS
+C     DISCLOSED, OR REPRESENTS THAT ITS USE WOULD NOT INFRINGE PRIVATELY
+C     OWNED RIGHTS.
+C
+C     ******************************************************************
+C
+C     THE BASIC REFERENCE DOCUMENT FOR THIS CODE IS SAND86-1817
+C
+C     ******************************************************************
+C
+C             -- COMPUTER CODE MANAGEMENT SYSTEM INFORMATION --
+C
+C     CURRENT VERSION DESIGNATOR- V 03.00C
+C
+C     HISTORY OF MODIFICATION (LISTED BY VERSION NUMBER) -
+C
+C        VERSION V00.00  - FIRST VERSION OF NACHOS. NOT MAINTAINED IN
+C                          THE CCMS. DERIVED FROM TEXFLAP CODE.
+C                          MODIFIED AS REQUIRED.
+C                          RELEASED 12/75.
+C
+C        VERSION V01.00  - SECOND VERSION OF NACHOS, FIRST TO BE
+C                          RELEASED FOR GENERAL USE. DIFFERENT VERSIONS
+C                          OF NACHOS WERE MAINTAINED FOR THE CDC CYBER
+C                          76 AND CRAY. NOT MAINTAINED IN THE CCMS.
+C                          MODIFIED AS REQUIRED.
+C                          RELEASED 11/77.
+C
+C        VERSION V02.00  - UPGRADE OF VERSION V01.00, INCLUDING CHANGES
+C                          TO ELEMENT LIBRARY, DATA STORAGE SCHEME,
+C                          STEADY-STATE AND TRANSIENT SOLUTION METHODS,
+C                          AND NUMBER OF PDE'S SIMULATED. WRITTEN IN
+C                          FORTRAN 77. ENTERED INTO CCMS.
+C                          RELEASED 9/87.
+C
+C        VERSION V02.10  - REVISIONS TO VERSION V02.00 INCLUDING MINOR
+C                          FIXES TO THE FLUX COMPUTATION ROUTINES, A FIX
+C                          FOR THE TRIANGULAR ELEMENTS, REALLOCATION OF
+C                          VECTORS FOR READING EXTERNAL MESH GENERATION
+C                          DATA AND A CHANGE FROM THE SEACO FILE FORMAT
+C                          TO THE EXODUS FORMAT FOR POST-PROCESSING.
+C                          A VAX VERSION OF NACHOS2 WAS ALSO CREATED.
+C                          RELEASED 6/88.
+C
+C        VERSION V02.11  - MINOR FIXES TO NORM ROUTINES AND SIDE BC DATA
+C                          READ FROM GENESIS FILE. ADDED CONTROL FOR MIN
+C                          AND MAX TIME STEP.
+C                          RELEASED 6/89.
+C
+C        VERSION V03.00  - CREATION OF CRAY UNICOS VERSION. ELIMINATION
+C                          OF BATCH PLOTTING CAPABILITY AND REMOVAL OF
+C                          SSD ROUTINES.
+C                          RELEASED 3/91.
+C
+C     ******************************************************************
+C     ******************************************************************
+C
+      CHARACTER*8  CODNAM,VERSN,RDATE,RTIME,HRDWRE,SFTWRE
+      CHARACTER*10 CWORD,CDATA,ORDER
+      CHARACTER*80 HED,CMMNT
+C
+      COMMON /HEADER/ HED,CMMNT(10)
+      COMMON /RUNDAT/ CODNAM,VERSN,RDATE,RTIME,HRDWRE,SFTWRE
+      COMMON /INDATR/ RDATA(150)
+      COMMON /INDATI/ IDATA(150)
+      COMMON /INDATC/ CDATA(150)
+      COMMON /TAPES/  NIN,NOUT,NTP0,NTP1,NTP2,NTP3,NTP4,NTP5,NTP6,NTP7, 
+     1                NTP8,NTP9,NTP10,NTP11,NTP12,NTP13
+      COMMON /NTPDAT/ IFILES(16)
+      COMMON /CONTRL/ IEDIT,IPRINT
+      COMMON /RSTART/ IRSTRT,NSTEPS
+      COMMON /MEMDAT/ MEMTOT,MAXMEM
+      COMMON /SZDAT/  NUMEL,NUMNOD,NUMVAR,NUMDOF,NODSOL
+      COMMON /LMTDAT/ MAXELM,MAXNOD,MAXBC,MAXEDG,MAXMAT,MAXNPT,MAXPLT,  
+     1                MAXBRY,MAXBLK
+      COMMON /GENDAT/ NELBLK,NUMNPS,LNPSNL,NUMESS,LESSEL,LESSNL,MXEBLK, 
+     1                IBLK(100)
+      COMMON /MATDAT/ NMAT,NPROP,PROP(15,10),NXMAT,NXPROP,XPROP(15,10)
+      COMMON /PRBDAT/ IAXSYM,ITMDEP,IFORCE,IFREE,IVAR1,IVAR2,IPFUNC,    
+     1                IPNLTY,PNLTY
+      COMMON /ELMDAT/ NNELM(6),NNCOR(6),NNMID(6),NNCTR(6),NSIDET(5),    
+     1                NSIDEQ(7),NNSIDE(6,4,3)
+      COMMON /SPTDAT/ ISPT,NSPT,NELSPT(50),PTS(50,2),SPTVAL(50,6)
+      COMMON /BCDAT/  BCSET(2,20,2),IPELM,IPNODE,PBC
+      COMMON /GAUSS1/ GSPT1(4),GSPT2(4)
+      COMMON /GAUSS2/ GSPT3(3),GSWT3(3)
+      COMMON /HAMMR1/ HAMPT1(3),HAMPT2(3)
+      COMMON /HAMMR2/ HMPT1(7),HMPT2(7),HMWT(7)
+      COMMON /SLNDAT/ IALGOR,IBLDUV,IBLDT,IJACOB,IAUTO,NCYCLM,NPRNT,    
+     1                KSTEP,KPRNT,TIME,DELTN,DELTNM
+      COMMON /FRNT/   RPIVOT,SPIVOT,IRESOL,ISOLVE,NSUM,IPIVOT,MWGA
+      COMMON /FRNTSZ/ MXFRNT,MXDOFE,MXBLKS,MXBUFF,LIWK,LRWK
+      COMMON /NORM/   UMAX,VMAX,TMAX,V1MAX,V2MAX
+      COMMON /ANORM/  ANRMU,ANRMV,ANRMUV,ANRMT,ANRMX1,ANRMX2
+      COMMON /BNORM/  BNRMU,BNRMV,BNRMUV,BNRMT,BNRMX1,BNRMX2
+      COMMON /FLXDAT/ NFLUX
+      COMMON /CMMNDS/ CWORD(10)
+      COMMON /TRI6/   F6Q(6,7),F6L(3,7),DF6QDS(6,7),DF6QDT(6,7)
+      COMMON /QUAD8/  F8Q(8,9),F8L(4,9),DF8QDS(8,9),DF8QDT(8,9)
+      COMMON /QUAD9/  F9Q(9,9),F9L(4,9),DF9QDS(9,9),DF9QDT(9,9)
+C
+      DIMENSION A(1)
+C
+C     ******************************************************************
+C
+C     MAIN PROGRAM FOR THE NACHOS CODE
+C     PROGRAM EXECUTION IS DIRECTED FROM THIS ROUTINE
+C
+C     ******************************************************************
+C
+C     NOTE : ALL ELEMENT DATA, NODAL POINT DATA, SOLUTION FIELDS, WORK
+C            SPACE, ETC. ARE STORED IN THE ARRAY "A". THE MEMORY
+C            MANAGER REQUESTS THE NEEDED STORAGE SPACE IN "A" DURING
+C            EXECUTION. THE POINTERS NA1,NA2,..NAM PARTITION THE
+C            ALLOCATED STORAGE INTO SEPARATE ARRAYS. SEE SAND86-0911
+C            FOR DETAILS OF THE MEMORY MANAGER.
+C
+C     ******************************************************************
+C
+C     OPEN ALL DISK FILES NEEDED FOR STANDARD EXECUTION
+C     SPECIAL INPUT/OUTPUT FILES ARE OPENED DURING EXECUTION AS REQUIRED
+C
+      CALL OPNFIL (1)
+C
+C     READ ALL DATA, GIVE 80 COLUMN LIST AND PUT ON NTP1
+C     NTP1=NIN (UNIT 11) IS THE INTERNAL INPUT FILE FOR NACHOS
+C
+      CALL EXCPUS (TO)
+      CALL EXDATE (RDATE)
+      CALL EXTIME (RTIME)
+      CALL EXPARM (HRDWRE,SFTWRE,MODE,KCSU,KNSU,IDAU)
+      REWIND (NTP1)
+      CALL RDINPT
+      NIN=NTP1
+      REWIND (NIN)
+C
+C     READ DATA FILE TO CHECK FOR ERRORS AND PRESET PARAMETERS
+C     CRITICAL TO THE DYNAMIC STORAGE SCHEME
+C
+      CALL PREVUE
+      ITEST1=0
+      ITEST2=0
+      REWIND (NIN)
+C
+C     INITIALIZE MEMORY MANAGER
+C
+      CALL MDINIT (A)
+C
+C     WRITE HEADING INFORMATION
+C
+      WRITE (NOUT, 440) HED
+      IF (CMMNT(1).EQ.'END') GO TO 20
+      WRITE (NOUT, 450)
+      DO 10 I=1,10
+      IF (CMMNT(I).EQ.'END') THEN
+      WRITE (NOUT, 470)
+      GO TO 20
+       ELSE
+      WRITE (NOUT, 460) CMMNT(I)
+      END IF
+   10 CONTINUE
+C
+C     IDENTIFY THE NEXT COMMAND AND BRANCH TO SUBROUTINE
+C
+   20 CONTINUE
+      CALL RDFFLD (NIN,RDATA,IDATA,CDATA)
+      DO 30 I=1,10
+      IF (CDATA(1).EQ.CWORD(I)) GO TO (40, 50, 90, 120, 130, 160, 170,  
+     1  180, 280, 290), I
+   30 CONTINUE
+      CALL ERROR ('NACHOS','UNRECOGNIZED COMMAND',' ',0,' ',0,'WORD',   
+     1CDATA(1),1)
+C
+C     ******************************************************************
+C     MATERIALS COMMAND
+C     ******************************************************************
+C
+   40 CONTINUE
+      WRITE (NOUT, 490) CDATA(1)
+      CALL EXCPUS (T1)
+      CALL MATRL
+      CALL EXCPUS (T2)
+      T1=T2-T1
+      WRITE (NOUT, 480) CWORD(I),T1
+      WRITE (NOUT, 470)
+      GO TO 20
+C
+C     ******************************************************************
+C     MESH COMMAND
+C     ******************************************************************
+C
+   50 CONTINUE
+      WRITE (NOUT, 490) CDATA(1)
+      CALL EXCPUS (T1)
+      IF (CDATA(2).EQ.'INTERNAL  ') GO TO 70
+C
+C     EXTERNAL MESH GENERATOR
+C     *********************************
+C
+      WRITE (NOUT, 500)
+      IMESH=0
+      CALL RDFFLD (NIN,RDATA,IDATA,CDATA)
+      IF (CDATA(1).EQ.'GENESIS   ') GO TO 60
+      CALL ERROR ('NACHOS','UNRECOGNIZED MESH FORMAT',' ',0,' ',0,      
+     1'WORD',CDATA(1),1)
+C
+C     'GENESIS' INPUT FORMAT
+C
+   60 CONTINUE
+      WRITE (NOUT, 510) CDATA(1)
+      REWIND (NTP0)
+      REWIND (NTP12)
+      CALL GENRD1
+C
+C     SET MEMORY ALLOCATION FOR NEEDED ARRAYS
+C
+      MAXNPT=MAXNPT+IPFUNC
+      NODSOL=NUMNOD+NUMEL*IPFUNC
+      ISIZE=3*NUMNOD+NUMEL*(MAXNPT+2)+MAXNPT*MXEBLK
+      CALL MDGET (ISIZE)
+C
+C     A(NA1)     =     X(1:NUMNOD)
+C     A(NA2)     =     Y(1:NUMNOD)
+C     A(NA3)     =     ICON(1:NUMEL,1:MAXNPT)
+C     A(NA4)     =     LISTEL(1:NUMEL)
+C     A(NA5)     =     LISTND(1:NUMNOD)
+C     A(NA6)     =     MAP(1:NUMEL)
+C     A(NA7)     =     ICONB(1:MAXNPT,1:MXEBLK)
+C
+      CALL MDRSRV ('X',      NA1, NUMNOD)
+      CALL MDRSRV ('Y',      NA2, NUMNOD)
+      CALL MDRSRV ('ICON',   NA3, NUMEL*MAXNPT)
+      CALL MDRSRV ('LISTEL', NA4, NUMEL)
+      CALL MDRSRV ('LISTND', NA5, NUMNOD)
+      CALL MDRSRV ('MAP',    NA6, NUMEL)
+      CALL MDRSRV ('ICONB',  NA7, MXEBLK*MAXNPT)
+C
+      CALL MDSTAT (MNERR,MEMTOT)
+      IF (MNERR.GT.0) THEN
+      CALL MDEROR (NOUT)
+      CALL ERROR ('NACHOS','MEMORY MANAGER ERROR','ERROR NUMBER',MNERR, 
+     1'MEMORY TOTAL',MEMTOT,'AT SUBROUTINE','GENRD2',1)
+       ELSE
+      WRITE (NOUT, 530) MEMTOT
+      END IF
+C
+      REWIND (NTP0)
+      CALL GENRD2 (A(NA1),A(NA2),A(NA3),A(NA4),A(NA6),A(NA7))
+C
+C     RELEASE MEMORY
+C
+      CALL MDDEL ('ICONB')
+C
+      CALL RDFFLD (NIN,RDATA,IDATA,CDATA)
+      IF (CDATA(1).NE.'END') CALL ERROR ('NACHOS','END CARD MISSING FROM
+     1 MESH COMMAND',' ',0,' ',0,' ',' ',1)
+      GO TO 80
+C
+C     INTERNAL MESH GENERATOR
+C     *********************************
+C
+   70 CONTINUE
+      WRITE (NOUT, 520)
+      IMESH=1
+      NIPT=IDATA(3)
+      NJPT=IDATA(4)
+      IF (NIPT.EQ.0.OR.NJPT.EQ.0) CALL ERROR ('NACHOS','IMAX OR JMAX MIS
+     1SING FROM MESH COMMAND','IMAX',NIPT,'JMAX',NJPT,' ',' ',1)
+      IPRINT=IDATA(5)
+      IF (IPRINT.EQ.0) IPRINT=2
+C
+C     SET MEMORY ALLOCATION FOR NEEDED ARRAYS
+C
+      ISIZE=(NIPT*NJPT)*3+MAXEDG*6
+      CALL MDGET (ISIZE)
+C
+C     A(NA1)     =     XMESH(1:NIPT,1:NJPT)
+C     A(NA2)     =     YMESH(1:NIPT,1:NJPT)
+C     A(NA3)     =     IBND(1:NIPT,1:NJPT)
+C     A(NA4)     =     CC(1:MAXEDG)
+C     A(NA5)     =     HH(1:MAXEDG)
+C     A(NA6)     =     CR(1:MAXEDG)
+C     A(NA7)     =     HR(1:MAXEDG)
+C     A(NA8)     =     CA(1:MAXEDG)
+C     A(NA9)     =     HA(1:MAXEDG)
+C
+      CALL MDRSRV ('XMESH', NA1, NIPT*NJPT)
+      CALL MDRSRV ('YMESH', NA2, NIPT*NJPT)
+      CALL MDRSRV ('IBND',  NA3, NIPT*NJPT)
+      CALL MDRSRV ('CC',    NA4, MAXEDG)
+      CALL MDRSRV ('HH',    NA5, MAXEDG)
+      CALL MDRSRV ('CR',    NA6, MAXEDG)
+      CALL MDRSRV ('HR',    NA7, MAXEDG)
+      CALL MDRSRV ('CA',    NA8, MAXEDG)
+      CALL MDRSRV ('HA',    NA9, MAXEDG)
+C
+      CALL MDSTAT (MNERR,MEMTOT)
+      IF (MNERR.GT.0) THEN
+      CALL MDEROR (NOUT)
+      CALL ERROR ('NACHOS','MEMORY MANAGER ERROR','ERROR NUMBER',MNERR, 
+     1'MEMORY TOTAL',MEMTOT,'AT SUBROUTINE','MESH',1)
+       ELSE
+      WRITE (NOUT, 530) MEMTOT
+      END IF
+C
+      CALL MESH (A(NA1),A(NA2),A(NA3),A(NA4),A(NA5),A(NA6),A(NA7),      
+     1A(NA8),A(NA9),NIPT,NJPT,IPRINT)
+C
+C     RELEASE MEMORY
+C
+      CALL MDDEL ('HA')
+      CALL MDDEL ('CA')
+      CALL MDDEL ('HR')
+      CALL MDDEL ('CR')
+      CALL MDDEL ('HH')
+      CALL MDDEL ('CC')
+      CALL MDDEL ('IBND')
+C
+   80 CONTINUE
+      CALL EXCPUS (T2)
+      T1=T2-T1
+      WRITE (NOUT, 480) CWORD(I),T1
+      WRITE (NOUT, 470)
+      GO TO 20
+C
+C     ******************************************************************
+C     ELEMENTS COMMAND
+C     ******************************************************************
+C
+   90 CONTINUE
+      WRITE (NOUT, 490) CDATA(1)
+      CALL EXCPUS (T1)
+      REWIND (NTP2)
+      REWIND (NTP11)
+      IF (IMESH.EQ.1) GO TO 100
+C
+C     EXTERNAL MESH GENERATOR
+C     *********************************
+C
+      IPRINT=IDATA(4)
+      IF (IPRINT.EQ.0) IPRINT=2
+C
+C     SET MEMORY ALLOCATION FOR NEEDED ARRAYS
+C
+      ISIZE=NUMNPS*4+LNPSNL*2+NUMESS*6+LESSEL+LESSNL*2
+      CALL MDGET (ISIZE)
+C
+C     A(NA1)     =     X(1:NUMNOD)
+C     A(NA2)     =     Y(1:NUMNOD)
+C     A(NA3)     =     ICON(1:NUMEL,1:MAXNPT)
+C     A(NA4)     =     LISTEL(1:NUMEL)
+C     A(NA5)     =     LISTND(1:NUMNOD)
+C     A(NA6)     =     MAP(1:NUMEL)
+C     A(NA7)     =     IDNPS(1:NUMNPS)
+C     A(NA8)     =     NNNPS(1:NUMNPS)
+C     A(NA9)     =     IPTNPS(1:NUMNPS)
+C     A(NA10)    =     LSTNPS(1:LNPSNL)
+C     A(NA11)    =     FACNPS(1:LNPSNL)
+C     A(NA12)    =     BCVNPS(1:NUMNPS)
+C     A(NA13)    =     IDESS(1:NUMESS)
+C     A(NA14)    =     NEESS(1:NUMESS)
+C     A(NA15)    =     NNESS(1:NUMESS)
+C     A(NA16)    =     IPEESS(1:NUMESS)
+C     A(NA17)    =     IPNESS(1:NUMESS)
+C     A(NA18)    =     LTEESS(1:LESSEL)
+C     A(NA19)    =     LTNESS(1:LESSNL)
+C     A(NA20)    =     FACESS(1:LESSNL)
+C     A(NA21)    =     BCVESS(1:NUMESS)
+C
+      CALL MDRSRV ('IDNPS',  NA7, NUMNPS)
+      CALL MDRSRV ('NNNPS',  NA8, NUMNPS)
+      CALL MDRSRV ('IPTNPS', NA9, NUMNPS)
+      CALL MDRSRV ('LSTNPS', NA10,LNPSNL)
+      CALL MDRSRV ('FACNPS', NA11,LNPSNL)
+      CALL MDRSRV ('BCVNPS', NA12,NUMNPS)
+      CALL MDRSRV ('IDESS',  NA13,NUMESS)
+      CALL MDRSRV ('NEESS',  NA14,NUMESS)
+      CALL MDRSRV ('NNESS',  NA15,NUMESS)
+      CALL MDRSRV ('IPEESS', NA16,NUMESS)
+      CALL MDRSRV ('IPNESS', NA17,NUMESS)
+      CALL MDRSRV ('LTEESS', NA18,LESSEL)
+      CALL MDRSRV ('LTNESS', NA19,LESSNL)
+      CALL MDRSRV ('FACESS', NA20,LESSNL)
+      CALL MDRSRV ('BCVESS', NA21,NUMESS)
+C
+      CALL MDSTAT (MNERR,MEMTOT)
+      IF (MNERR.GT.0) THEN
+      CALL MDEROR (NOUT)
+      CALL ERROR ('NACHOS','MEMORY MANAGER ERROR','ERROR NUMBER',MNERR, 
+     1'MEMORY TOTAL',MEMTOT,'AT SUBROUTINE','GENRD3',1)
+       ELSE
+      WRITE (NOUT, 540) MEMTOT
+      END IF
+C
+      CALL GENRD3 (A(NA1),A(NA2),A(NA3),A(NA4),A(NA5),A(NA6),A(NA7),    
+     1A(NA8),A(NA9),A(NA10),A(NA11),A(NA12),A(NA13),A(NA14),A(NA15),    
+     2A(NA16),A(NA17),A(NA18),A(NA19),A(NA20),A(NA21))
+C
+C     RELEASE MEMORY
+C
+      CALL MDDEL ('BCVESS')
+      CALL MDDEL ('FACESS')
+      CALL MDDEL ('LTNESS')
+      CALL MDDEL ('LTEESS')
+      CALL MDDEL ('IPNESS')
+      CALL MDDEL ('IPEESS')
+      CALL MDDEL ('NNESS')
+      CALL MDDEL ('NEESS')
+      CALL MDDEL ('IDESS')
+      CALL MDDEL ('BCVNPS')
+      CALL MDDEL ('FACNPS')
+      CALL MDDEL ('LSTNPS')
+      CALL MDDEL ('IPTNPS')
+      CALL MDDEL ('NNNPS')
+      CALL MDDEL ('IDNPS')
+C
+      GO TO 110
+C
+C     INTERNAL MESH GENERATOR
+C     *********************************
+C
+  100 CONTINUE
+      MAXELM=IDATA(2)
+      IF (MAXELM.EQ.0) MAXELM=500
+      ORDER=CDATA(3)
+      IPRINT=IDATA(4)
+      IF (IPRINT.EQ.0) IPRINT=2
+C
+C     SET MEMORY ALLOCATION FOR NEEDED ARRAYS
+C
+      ISIZE=MAXELM*10+MAXBC*2
+      CALL MDGET (ISIZE)
+C
+C     A(NA1)     =     XMESH(1:NIPT,1:NJPT)
+C     A(NA2)     =     YMESH(1:NIPT,1:NJPT)
+C     A(NA3)     =     IJK(1:10,1:MAXELM)
+C     A(NA4)     =     IBC(1:MAXBC)
+C     A(NA5)     =     BCVAL(1:MAXBC)
+C
+      CALL MDRSRV ('IJK',   NA3, 10*MAXELM)
+      CALL MDRSRV ('IBC',   NA4, MAXBC)
+      CALL MDRSRV ('BCVAL', NA5, MAXBC)
+C
+      CALL MDSTAT (MNERR,MEMTOT)
+      IF (MNERR.GT.0) THEN
+      CALL MDEROR (NOUT)
+      CALL ERROR ('NACHOS','MEMORY MANAGER ERROR','ERROR NUMBER',MNERR, 
+     1'MEMORY TOTAL',MEMTOT,'AT SUBROUTINE','ELEMNT',1)
+       ELSE
+      WRITE (NOUT, 540) MEMTOT
+      END IF
+C
+      CALL ELEMNT (A(NA1),A(NA2),A(NA3),A(NA4),A(NA5),NIPT,NJPT,ORDER,  
+     1IPRINT)
+C
+C     RELEASE MEMORY
+C
+      CALL MDDEL ('BCVAL')
+      CALL MDDEL ('IBC')
+      CALL MDDEL ('IJK')
+      CALL MDDEL ('YMESH')
+      CALL MDDEL ('XMESH')
+C
+C     GENERATE CONNECTIVITY
+C
+C     SET MEMORY ALLOCATION FOR NEEDED ARRAYS
+C
+      ISIZE=NUMEL*MAXNPT+NIPT*NJPT
+      MAXNOD=NIPT*NJPT
+      CALL MDGET (ISIZE)
+C
+C     A(NA1)     =     ICON(1:NUMEL,1:MAXNPT)
+C     A(NA2)     =     IJK(1:MAXNOD)
+C
+      CALL MDRSRV ('ICON', NA1, NUMEL*MAXNPT)
+      CALL MDRSRV ('IJK',  NA2, MAXNOD)
+C
+      CALL MDSTAT (MNERR,MEMTOT)
+      IF (MNERR.GT.0) THEN
+      CALL MDEROR (NOUT)
+      CALL ERROR ('NACHOS','MEMORY MANAGER ERROR','ERROR NUMBER',MNERR, 
+     1'MEMORY TOTAL',MEMTOT,'AT SUBROUTINE','CNNCT',1)
+      END IF
+C
+      CALL CNNCT (A(NA1),A(NA2))
+C
+C     RELEASE MEMORY
+C
+      CALL MDDEL ('IJK')
+      CALL MDDEL ('ICON')
+C
+C     STORE ELEMENT DATA
+C
+C     SET MEMORY ALLOCATION FOR NEEDED ARRAYS
+C
+      MAXNPT=MAXNPT+IPFUNC
+      NODSOL=NUMNOD+NUMEL*IPFUNC
+      ISIZE=NUMNOD*3+NUMEL*(2*MAXNPT+2)
+      CALL MDGET (ISIZE)
+C
+C     A(NA1)     =      X(1:NUMNOD)
+C     A(NA2)     =      Y(1:NUMNOD)
+C     A(NA3)     =      ICON(1:NUMEL,1:MAXNPT)
+C     A(NA4)     =      LISTEL(1:NUMEL)
+C     A(NA5)     =      LISTND(1:NUMNOD)
+C     A(NA6)     =      MAP(1:NUMEL)
+C     A(NA7)     =      ICONB(1:NUMEL,1:MAXNPT)
+C
+      CALL MDRSRV ('X',      NA1, NUMNOD)
+      CALL MDRSRV ('Y',      NA2, NUMNOD)
+      CALL MDRSRV ('ICON',   NA3, NUMEL*MAXNPT)
+      CALL MDRSRV ('LISTEL', NA4, NUMEL)
+      CALL MDRSRV ('LISTND', NA5, NUMNOD)
+      CALL MDRSRV ('MAP',    NA6, NUMEL)
+      CALL MDRSRV ('ICONB',  NA7, NUMEL*MAXNPT)
+C
+      CALL MDSTAT (MNERR,MEMTOT)
+      IF (MNERR.GT.0) THEN
+      CALL MDEROR (NOUT)
+      CALL ERROR ('NACHOS','MEMORY MANAGER ERROR','ERROR NUMBER',MNERR, 
+     1'MEMORY TOTAL',MEMTOT,'AT SUBROUTINE','STORE',1)
+       ELSE
+      WRITE (NOUT, 550) MEMTOT
+      END IF
+C
+      CALL STORE (A(NA1),A(NA2),A(NA3),A(NA4),A(NA5))
+C
+C     WRITE GENESIS DATA FILE
+C
+      REWIND (NTP12)
+      CALL GENWRT (A(NA1),A(NA2),A(NA3),A(NA4),A(NA6),A(NA7))
+C
+C     RELEASE MEMORY
+C
+      CALL MDDEL ('ICONB')
+      CALL MDDEL ('MAP')
+C
+  110 CONTINUE
+      CALL EXCPUS (T2)
+      T1=T2-T1
+      WRITE (NOUT, 480) CWORD(I),T1
+      WRITE (NOUT, 470)
+      GO TO 20
+C
+C     ******************************************************************
+C     FORMKF COMMAND
+C     ******************************************************************
+C
+  120 CONTINUE
+      WRITE (NOUT, 490) CDATA(1)
+      CALL EXCPUS (T1)
+      REWIND (NTP2)
+      REWIND (NTP3)
+      REWIND (NTP4)
+      WRITE (NOUT, 300)
+      IF (CDATA(2).EQ.'AXISYM    ') THEN
+      IAXSYM=1
+      WRITE (NOUT, 310)
+       ELSE
+      IAXSYM=0
+      WRITE (NOUT, 320)
+      END IF
+      IF (CDATA(3).EQ.'FORCED    ') IFORCE=1
+      IF (CDATA(3).EQ.'FREE      ') IFREE=1
+      NUMVAR=NUMVAR+IFORCE+IFREE
+      IF (IFREE+IFORCE.EQ.0) THEN
+      WRITE (NOUT, 330)
+       ELSE
+      WRITE (NOUT, 340) CDATA(3)
+      END IF
+      IF (CDATA(4).EQ.'PENALTY   ') IPNLTY=1
+      IF (IPNLTY.EQ.0) THEN
+      PNLTY=1.0
+      WRITE (NOUT, 350)
+       ELSE
+      PNLTY=RDATA(5)
+      IF (PNLTY.EQ.0.) PNLTY=1.0E-8
+      WRITE (NOUT, 360) PNLTY
+      END IF
+      IF (CDATA(6).EQ.'LINEAR    ') IPFUNC=1
+      IF (IPFUNC.EQ.0.AND.IPNLTY.EQ.1) THEN
+      WRITE (NOUT, 370)
+      IPFUNC=1
+      END IF
+      IF (IPFUNC.EQ.0) THEN
+      WRITE (NOUT, 380)
+       ELSE
+      WRITE (NOUT, 390)
+      END IF
+      IF (IPNLTY.EQ.1) IPFUNC=0
+      IF (CDATA(7).EQ.'AUXVAR1   ') IVAR1=1
+      IF (CDATA(8).EQ.'AUXVAR2   ') IVAR2=1
+      NUMVAR=NUMVAR+IVAR1+IVAR2
+      IF (IVAR1+IVAR2.EQ.0) WRITE (NOUT, 400)
+      IF (IVAR1.EQ.1.AND.IVAR2.EQ.0) WRITE (NOUT, 410)
+      IF (IVAR2.EQ.1) WRITE (NOUT, 420)
+C
+      CALL FORMKF
+C
+      CALL EXCPUS (T2)
+      T1=T2-T1
+      WRITE (NOUT, 480) CWORD(I),T1
+      WRITE (NOUT, 470)
+      GO TO 20
+C
+C     ******************************************************************
+C     OUTPUT COMMAND
+C     ******************************************************************
+C
+  130 CONTINUE
+      WRITE (NOUT, 490) CDATA(1)
+      CALL EXCPUS (T1)
+      IF (CDATA(2).EQ.'POINTS    ') GO TO 140
+C
+C     OUTPUT EDITING
+C     *********************************
+C
+      IF (CDATA(2).EQ.'FIELDS    ') THEN
+      CALL PRTLMT (A(NA4))
+      END IF
+      GO TO 150
+C
+C     SPECIAL OUTPUT POINTS
+C     *********************************
+C
+  140 CONTINUE
+      CALL POINT (A(NA1),A(NA2),A(NA3),A(NA4))
+      ISPT=ISPT+1
+  150 CONTINUE
+C
+      CALL EXCPUS (T2)
+      T1=T2-T1
+      WRITE (NOUT, 480) CWORD(I),T1
+      WRITE (NOUT, 470)
+      GO TO 20
+C
+C     ******************************************************************
+C     SOLVE COMMAND
+C     ******************************************************************
+C
+  160 CONTINUE
+      WRITE (NOUT, 490) CDATA(1)
+      CALL EXCPUS (T1)
+      REWIND (NTP3)
+      REWIND (NTP4)
+      REWIND (NTP6)
+      REWIND (NTP9)
+      REWIND (NTP10)
+      IF (CDATA(2).EQ.'RESTART   ') THEN
+      IRSTRT=1
+      CALL OPNFIL (2)
+      REWIND (NTP13)
+      END IF
+      NSTEPS=IDATA(3)
+      IF (NSTEPS.EQ.0) NSTEPS=1
+      MXMEM=IDATA(4)
+      IF (MXMEM.EQ.0) MXMEM=MAXMEM
+C
+C     PREFRONT COMPUTATIONS
+C     *********************************
+C
+C     SET MEMORY ALLOCATION FOR NEEDED ARRAYS
+C
+      ISIZE=NUMEL+(NUMNOD*NUMVAR)*4+NODSOL*2
+      CALL MDGET (ISIZE)
+C
+C     A(NA1)     =     X(1:NUMNOD)
+C     A(NA2)     =     Y(1:NUMNOD)
+C     A(NA3)     =     ICON(1:NUMEL,1:MAXNPT)
+C     A(NA4)     =     LISTEL(1:NUMEL)
+C     A(NA5)     =     LISTND(1:NUMNOD)
+C     A(NA6)     =     UN(1:NUMNOD,1:NUMVAR)
+C     A(NA7)     =     UPNP1(1:NUMNOD,1:NUMVAR)
+C     A(NA8)     =     ACCN(1:NUMNOD,1:NUMVAR)
+C     A(NA9)     =     NCHECK(1:NUMNOD,1:NUMVAR)
+C     A(NA10)    =     NCN(1:NUMEL)
+C     A(NA11)    =     MDF(1:NODSOL)
+C     A(NA12)    =     NOPP(1:NODSOL)
+C
+      CALL MDRSRV ('UN',     NA6, NUMNOD*NUMVAR)
+      CALL MDRSRV ('UPNP1',  NA7, NUMNOD*NUMVAR)
+      CALL MDRSRV ('ACCN',   NA8, NUMNOD*NUMVAR)
+      CALL MDRSRV ('NCHECK', NA9, NUMNOD*NUMVAR)
+      CALL MDRSRV ('NCN',    NA10,NUMEL)
+      CALL MDRSRV ('MDF',    NA11,NODSOL)
+      CALL MDRSRV ('NOPP',   NA12,NODSOL)
+C
+      CALL MDSTAT (MNERR,MEMTOT)
+      IF (MNERR.GT.0) THEN
+      CALL MDEROR (NOUT)
+      CALL ERROR ('NACHOS','MEMORY MANAGER ERROR','ERROR NUMBER',MNERR, 
+     1'MEMORY TOTAL',MEMTOT,'AT SUBROUTINE','PRFRNT',1)
+       ELSE
+      WRITE (NOUT, 570) MEMTOT
+      END IF
+C
+      CALL PRFRNT (A(NA3),A(NA4),A(NA10),A(NA11),A(NA12),A(NA9))
+C
+      CALL EXCPUS (T3)
+      T3=T3-T1
+      WRITE (NOUT, 560) T3
+C
+C     SOLUTION COMPUTATIONS
+C     *********************************
+C
+C     SET MEMORY ALLOCATION FOR NEEDED ARRAYS
+C
+      LIWK=NUMDOF*3+MXDOFE*4+MXFRNT*6+MXBLKS
+      LRWK=MXFRNT**2+MXFRNT*9+NUMDOF*2
+      MNBUFF=4*MXFRNT+4
+      MNMEM=MEMTOT+LIWK+LRWK+MNBUFF
+      WRITE (NOUT, 580) MNMEM
+      MXBUFF=MXMEM-(MEMTOT+LIWK+LRWK)
+      IF (MXBUFF.LE.MNBUFF) MXBUFF=MNBUFF
+      ISIZE=LIWK+LRWK+MXBUFF
+      CALL MDGET (ISIZE)
+C
+C     A(NA1)     =     X(1:NUMNOD)
+C     A(NA2)     =     Y(1:NUMNOD)
+C     A(NA3)     =     ICON(1:NUMEL,1:MAXNPT)
+C     A(NA4)     =     LISTEL(1:NUMEL)
+C     A(NA5)     =     LISTND(1:NUMNOD)
+C     A(NA6)     =     UN(1:NUMNOD,1:NUMVAR)
+C     A(NA7)     =     UPNP1(1:NUMNOD,1:NUMVAR)
+C     A(NA8)     =     ACCN(1:NUMNOD,1:NUMVAR)
+C     A(NA9)     =     SCRTCH(1:NUMNOD,1:NUMVAR)
+C     A(NA10)    =     NCN(1:NUMEL)
+C     A(NA11)    =     MDF(1:NODSOL)
+C     A(NA12)    =     NOPP(1:NODSOL)
+C     A(NA13)    =     IWK(1:LIWK)
+C     A(NA14)    =     RWK(1:LRWK+MXBUFF)
+C
+      CALL MDNAME ('NCHECK','SCRTCH')
+      CALL MDRSRV ('IWK', NA13, LIWK)
+      CALL MDRSRV ('RWK', NA14, LRWK+MXBUFF)
+C
+      CALL MDSTAT (MNERR,MEMTOT)
+      IF (MNERR.GT.0) THEN
+      CALL MDEROR (NOUT)
+      CALL ERROR ('NACHOS','MEMORY MANAGER ERROR','ERROR NUMBER',MNERR, 
+     1'MEMORY TOTAL',MEMTOT,'AT SUBROUTINE','SOLVE',1)
+       ELSE
+      WRITE (NOUT, 590) MEMTOT
+      END IF
+C
+      CALL SOLVE (A(NA1),A(NA2),A(NA3),A(NA4),A(NA5),A(NA6),A(NA7),     
+     1A(NA8),A(NA9),A(NA10),A(NA11),A(NA12),A(NA13),A(NA14))
+C
+C     RELEASE MEMORY
+C
+      CALL MDDEL ('RWK')
+      CALL MDDEL ('IWK')
+      CALL MDDEL ('NOPP')
+      CALL MDDEL ('MDF')
+      CALL MDDEL ('NCN')
+      CALL MDDEL ('SCRTCH')
+      CALL MDDEL ('ACCN')
+      CALL MDDEL ('UPNP1')
+C
+      CALL EXCPUS (T2)
+      T1=T2-T1
+      WRITE (NOUT, 480) CWORD(I),T1
+      WRITE (NOUT, 470)
+      GO TO 20
+C
+C     ******************************************************************
+C     STREAM COMMAND
+C     ******************************************************************
+C
+  170 CONTINUE
+      WRITE (NOUT, 490) CDATA(1)
+      CALL EXCPUS (T1)
+      REWIND (NTP5)
+      REWIND (NTP9)
+C
+C     SET MEMORY ALLOCATION FOR NEEDED ARRAYS
+C
+      ISIZE=NUMNOD
+      CALL MDGET (ISIZE)
+C
+C     A(NA1)     =     X(1:NUMNOD)
+C     A(NA2)     =     Y(1:NUMNOD)
+C     A(NA3)     =     ICON(1:NUMEL,1:MAXNPT)
+C     A(NA4)     =     LISTEL(1:NUMEL)
+C     A(NA5)     =     LISTND(1:NUMNOD)
+C     A(NA6)     =     UN(1:NUMNOD,1:NUMVAR)
+C     A(NA7)     =     PSIVEC(1:NUMNOD)
+C
+      CALL MDRSRV ('PSIVEC', NA7, NUMNOD)
+C
+      CALL MDSTAT (MNERR,MEMTOT)
+      IF (MNERR.GT.0) THEN
+      CALL MDEROR (NOUT)
+      CALL ERROR ('NACHOS','MEMORY MANAGER ERROR','ERROR NUMBER',MNERR, 
+     1'MEMORY TOTAL',MEMTOT,'AT SUBROUTINE','STREAM',1)
+       ELSE
+      WRITE (NOUT, 600) MEMTOT
+      END IF
+C
+      CALL STREAM (A(NA1),A(NA2),A(NA3),A(NA4),A(NA5),A(NA6),A(NA7))
+      ITEST1=1
+C
+C     RELEASE MEMORY
+C
+      CALL MDDEL ('PSIVEC')
+C
+      CALL EXCPUS (T2)
+      T1=T2-T1
+      WRITE (NOUT, 480) CWORD(I),T1
+      WRITE (NOUT, 470)
+      GO TO 20
+C
+C     ******************************************************************
+C     FLUX COMMAND
+C     ******************************************************************
+C
+  180 CONTINUE
+      WRITE (NOUT, 490) CDATA(1)
+      CALL EXCPUS (T1)
+      REWIND (NTP7)
+      REWIND (NTP8)
+      REWIND (NTP9)
+C
+C     SET MEMORY ALLOCATION FOR NEEDED ARRAYS
+C
+      NFLUX=5
+      IF (IFORCE+IFREE.EQ.1. OR .IVAR1.EQ.1. OR .IVAR2.EQ.1) NFLUX=11
+      ISIZE=NUMNOD*NFLUX
+      CALL MDGET (ISIZE)
+C
+C     A(NA1)     =     X(1:NUMNOD)
+C     A(NA2)     =     Y(1:NUMNOD)
+C     A(NA3)     =     ICON(1:NUMEL,1:MAXNPT)
+C     A(NA4)     =     LISTEL(1:NUMEL)
+C     A(NA5)     =     LISTND(1:NUMNOD)
+C     A(NA6)     =     UN(1:NUMNOD,1:NUMVAR)
+C     A(NA7)     =     USAVE(1:NUMNOD,1:NFLUX)
+C
+      CALL MDRSRV ('USAVE', NA7, NUMNOD*NFLUX)
+C
+      CALL MDSTAT (MNERR,MEMTOT)
+      IF (MNERR.GT.0) THEN
+      CALL MDEROR (NOUT)
+      CALL ERROR ('NACHOS','MEMORY MANAGER ERROR','ERROR NUMBER',MNERR, 
+     1'MEMORY TOTAL',MEMTOT,'AT SUBROUTINE','FLUXES',1)
+       ELSE
+      WRITE (NOUT, 610) MEMTOT
+      END IF
+C
+      IF (CDATA(3).EQ.'SAVE      ') ITEST2=1
+      CALL FLUXES (A(NA1),A(NA2),A(NA3),A(NA4),A(NA5),A(NA6),A(NA7))
+C
+C     RELEASE MEMORY
+C
+      CALL MDDEL ('USAVE')
+C
+      CALL EXCPUS (T2)
+      T1=T2-T1
+      WRITE (NOUT, 480) CWORD(I),T1
+      WRITE (NOUT, 470)
+      GO TO 20
+C
+C     ******************************************************************
+C     POST COMMAND
+C     ******************************************************************
+C
+  280 CONTINUE
+      WRITE (NOUT, 490) CDATA(1)
+      CALL EXCPUS (T1)
+      REWIND (NTP5)
+      REWIND (NTP6)
+      REWIND (NTP7)
+      REWIND (NTP8)
+      REWIND (NTP9)
+C
+C     SET MEMORY ALLOCATION FOR NEEDED ARRAYS
+C
+      ISIZE=NUMNOD*6+NELBLK*10
+      CALL MDGET (ISIZE)
+C
+C     A(NA1)     =     X(1:NUMNOD)
+C     A(NA2)     =     Y(1:NUMNOD)
+C     A(NA3)     =     ICON(1:NUMEL,1:MAXNPT)
+C     A(NA4)     =     LISTEL(1:NUMEL)
+C     A(NA5)     =     LISTND(1:NUMNOD)
+C     A(NA6)     =     UN(1:NUMNOD,1:NUMVAR)
+C     A(NA7)     =     USAVE(1:NUMNOD,1:6)
+C     A(NA8)     =     ISEVOK(1:10,1:NELBLK)
+C
+      CALL MDRSRV ('USAVE', NA7, NUMNOD*6)
+      CALL MDRSRV ('ISEVOK',NA8, NELBLK*10)
+C
+      CALL MDSTAT (MNERR,MEMTOT)
+      IF (MNERR.GT.0) THEN
+      CALL MDEROR (NOUT)
+      CALL ERROR ('NACHOS','MEMORY MANAGER ERROR','ERROR NUMBER',MNERR, 
+     1'MEMORY TOTAL',MEMTOT,'AT SUBROUTINE','GRPHFL',1)
+      END IF
+C
+      CALL GRPHFL (A(NA1),A(NA2),A(NA3),A(NA4),A(NA6),A(NA7),A(NA8),    
+     1ITEST1,ITEST2)
+C
+C     RELEASE MEMORY
+C
+      CALL MDDEL ('ISEVOK')
+      CALL MDDEL ('USAVE')
+C
+      CALL EXCPUS (T2)
+      T1=T2-T1
+      WRITE (NOUT, 480) CWORD(I),T1
+      WRITE (NOUT, 470)
+      GO TO 20
+C
+C     ******************************************************************
+C     STOP COMMAND
+C     ******************************************************************
+C
+  290 CONTINUE
+      WRITE (NOUT, 490) CDATA(1)
+      WRITE (NOUT, 430)
+      CALL EXCPUS (T2)
+      T1=T2-TO
+      WRITE (NOUT, 480) CWORD(I),T1
+C
+C     CLOSE DISK FILES
+C
+      CALL CLSFIL
+C
+      STOP
+C
+  300 FORMAT (//,3X,'THIS PROBLEM IS FORMULATED WITH THE FOLLOWING PARAM
+     1ETER SETTINGS - ')
+  310 FORMAT (//,10X,'GEOMETRY - AXISYMMETRIC')
+  320 FORMAT (//,10X,'GEOMETRY - PLANAR')
+  330 FORMAT (//,10X,'FLOW PROBLEM - ISOTHERMAL')
+  340 FORMAT (//,10X,'FLOW PROBLEM - 'A6,' CONVECTION')
+  350 FORMAT (//,10X,'FINITE ELEMENT FORMULATION - MIXED METHOD')
+  360 FORMAT (//,10X,'FINITE ELEMENT FORMULATION - PENALTY METHOD WITH P
+     1ENALTY PARAMETER = ',E15.7)
+  370 FORMAT (//,10X,'********** WARNING **********',/,10X,'THE REQUESTE
+     1D PRESSURE APPROXIMATION IS INCOMPATIBLE WITH THE PENALTY METHOD',
+     2/,10X,'PRESSURE APPROXIMATION RESET TO LINEAR FORM')
+  380 FORMAT (//,10X,'PRESSURE APPROXIMATION - CONTINUOUS, BILINEAR')
+  390 FORMAT (//,10X,'PRESSURE APPROXIMATION - DISCONTINUOUS, LINEAR')
+  400 FORMAT (//,10X,'AUXILIARY VARIABLES INCLUDED - NONE',//)
+  410 FORMAT (//,10X,'AUXILIARY VARIABLES INCLUDED - ONE',//)
+  420 FORMAT (//,10X,'AUXILIARY VARIABLES INCLUDED - TWO',//)
+  430 FORMAT (3X,'STOP')
+  440 FORMAT ('1',/,2X,'************************************************
+     1******************************************************************
+     2****************',//,3X,'PROBLEM TITLE - ' ,A80,//,2X,'***********
+     3******************************************************************
+     4*****************************************************'   ,//)
+  450 FORMAT (/,3X,'PROBLEM DESCRIPTION - ',/)
+  460 FORMAT (10X,A80,/)
+  470 FORMAT (//,2X,'***************************************************
+     1******************************************************************
+     2*************'  ,//)
+  480 FORMAT (/,1X,' **** TIME IN ' A10,' = 'F10.3,' SECONDS ****' )
+  490 FORMAT (///,2X,'**************************',/,2X,'*',24X,'*',     
+     1/,2X,'*',3X,A10,' COMMAND',3X,'*',/,2X,'*',24X,'*',               
+     2/,2X,'************************************************************
+     3******************************************************************
+     4****'   ,//)
+  500 FORMAT (//,3X,'MESH POINTS GENERATED BY EXTERNAL MESH GENERATOR', 
+     1//)
+  510 FORMAT (3X,'INPUT MESH FILE IS IN THE ',A,' FORMAT',//)
+  520 FORMAT (//,3X,'MESH POINTS GENERATED BY INTERNAL MESH GENERATOR', 
+     1//)
+  530 FORMAT (//,3X,'MEMORY NEEDED FOR MESH GENERATION - ',I10)
+  540 FORMAT (//,3X,'MEMORY NEEDED FOR ELEMENT/BC GENERATION - ',I10)
+  550 FORMAT (//,3X,'MEMORY NEEDED FOR ELEMENT AND NODAL POINT DATA - ',
+     1I10,//)
+  560 FORMAT (/,1X,' *** TIME IN PRE-FRONT = ',F10.3,' SECONDS ***')
+  570 FORMAT (//,3X,'MEMORY NEEDED FOR PRE-FRONT COMPUTATIONS - ',I10)
+  580 FORMAT (//,3X,'MINIMUM MEMORY NEEDED FOR SOLUTION - ',I10,//)
+  590 FORMAT (//,3X,'ACTUAL MEMORY USED FOR SOLUTION - ',I10,//)
+  600 FORMAT (//,3X,'MEMORY NEEDED FOR STREAM FUNCTION COMPUTATION - ', 
+     1I10,//)
+  610 FORMAT (//,3X,'MEMORY NEEDED FOR FLUX COMPUTATION - ',I10,//)
+      END

@@ -1,0 +1,1396 @@
+C
+C***********************************************************************
+C                                                                      *
+C            NACHOS II - A Finite Element Computer Program             *
+C                        for Incompressible Flow Problems              *
+C                                                                      *
+C     Copyright (c) 1986,2019   National Technology & Engineering      *
+C                               Solutions of Sandia, LLC (NTESS)       *
+C                                                                      *
+C                            All rights reserved.                      *
+C                                                                      *
+C     This software is distributed under the BSD 3-Clause License.     *
+C                                                                      *
+C***********************************************************************
+C
+      SUBROUTINE FLUXES (XS,YS,ICON,LISTEL,LISTND,UN,USAVE)
+C
+C     ******************************************************************
+C
+C     PROGRAM TO EVALUATE FLUX QUANTITIES (DEVIATORIC STRESSES,
+C     VORTICITY, HEAT FLUX, ETC.) ON ELEMENT BOUNDARIES OR AT THE
+C     ELEMENT INTEGRATION POINTS
+C
+C     ******************************************************************
+C
+      CHARACTER*10 CDATA,CODE
+C
+      COMMON /INDATR/ RDATA(150)
+      COMMON /INDATI/ IDATA(150)
+      COMMON /INDATC/ CDATA(150)
+      COMMON /TAPES/  NIN,NOUT,NTP0,NTP1,NTP2,NTP3,NTP4,NTP5,NTP6,NTP7, 
+     1                NTP8,NTP9,NTP10,NTP11,NTP12,NTP13
+      COMMON /SZDAT/  NUMEL,NUMNOD,NUMVAR,NUMDOF,NODSOL
+      COMMON /MATDAT/ NMAT,NPROP,PROP(15,10),NXMAT,NXPROP,XPROP(15,10)
+      COMMON /PRBDAT/ IAXSYM,ITMDEP,IFORCE,IFREE,IVAR1,IVAR2,IPFUNC,    
+     1                IPNLTY,PNLTY
+      COMMON /ELMDAT/ NNELM(6),NNCOR(6),NNMID(6),NNCTR(6),NSIDET(5),    
+     1                NSIDEQ(7),NNSIDE(6,4,3)
+      COMMON /TRI6/   F6Q(6,7),F6L(3,7),DF6QDS(6,7),DF6QDT(6,7)
+      COMMON /QUAD8/  F8Q(8,9),F8L(4,9),DF8QDS(8,9),DF8QDT(8,9)
+      COMMON /QUAD9/  F9Q(9,9),F9L(4,9),DF9QDS(9,9),DF9QDT(9,9)
+      COMMON /FLXDAT/ NFLUX
+C
+      DIMENSION ICON(NUMEL,*), LISTEL(*), LISTND(*), XS(*), YS(*)
+      DIMENSION UN(NUMNOD,*), USAVE(NUMNOD,*)
+      DIMENSION X(9), Y(9), U(9), V(9), P(9), T(9), V1(9), V2(9)
+      DIMENSION SQD(8), TQD(8), STRI(6), TTRI(6)
+      DIMENSION SPTQA(8), TPTQA(8), SPTQB(4), TPTQB(4)
+      DIMENSION SPTTA(6), TPTTA(6), SPTTB(3), TPTTB(3)
+      DIMENSION TXX(8), TYY(8), TXY(8), TZZ(8), VORT(8)
+      DIMENSION TN(8), TS(8), TSN(8), FN(4), FS(4)
+      DIMENSION QXX(8), QYY(8), QN(8), QA(4)
+      DIMENSION F1XX(8), F1YY(8), F2XX(8), F2YY(8)
+      DIMENSION F1N(8), F2N(8), F1A(4), F2A(4)
+      DIMENSION CODE(6), NEL(50)
+C
+      DATA (CODE(I),I=1,6)/'TRI6/3','TRI6/6','QUAD8/4','QUAD8/8',       
+     1     'QUAD9/4','QUAD9/9'/
+      DATA (SPTQA(I),I=1,8)/-.5,.5,1.,1.,.5,-.5,-1.,-1./
+      DATA (TPTQA(I),I=1,8)/-1.,-1.,-.5,.5,1.,1.,.5,-.5/
+      DATA (SPTQB(I),I=1,4)/-.57735026,.57735026,.57735026,-.57735026/
+      DATA (TPTQB(I),I=1,4)/-.57735026,-.57735026,.57735026,.57735026/
+      DATA (SPTTA(I),I=1,6)/.75,.25,0.,0.,.25,.75/
+      DATA (TPTTA(I),I=1,6)/.25,.75,.75,.25,0.,0./
+      DATA (SPTTB(I),I=1,3)/.73333333,.13333333,.13333333/
+      DATA (TPTTB(I),I=1,3)/.13333333,.73333333,.13333333/
+C
+      PARAMETER (PI=3.1415926535)
+C
+C     ******************************************************************
+C
+C     STATEMENT FUNCTIONS FOR DETERMINANTS AND ELEMENT QUANTITIES
+C
+      F11Q(S,R)=.25*(D1+S*D2+R*D3+S*R*D4+S**2*D5+S**2*R*D6)
+      F12Q(S,R)=-.25*(B1+R*B2+S*B3+S*R*B4+R**2*B5+S*R**2*B6)
+      F21Q(S,R)=-.25*(C1+S*C2+R*C3+S*R*C4+S**2*C5+S**2*R*C6)
+      F22Q(S,R)=.25*(A1+R*A2+S*A3+S*R*A4+R**2*A5+S*R**2*A6)
+      DETJQ(S,R)=F11Q(S,R)*F22Q(S,R)-F12Q(S,R)*F21Q(S,R)
+C
+      F11T(S,R)=S*A1+R*A2+A3
+      F12T(S,R)=-(S*C1+R*C2+C3)
+      F21T(S,R)=-(S*B1+R*B2+B3)
+      F22T(S,R)=S*D1+R*D2+D3
+      DETJT(S,R)=F11T(S,R)*F22T(S,R)-F12T(S,R)*F21T(S,R)
+C
+      U6Q(L)=F6Q(1,L)*U(1)+F6Q(2,L)*U(2)+F6Q(3,L)*U(3)+F6Q(4,L)*U(4)+   
+     1F6Q(5,L)*U(5)+F6Q(6,L)*U(6)
+      U8Q(L)=F8Q(1,L)*U(1)+F8Q(2,L)*U(2)+F8Q(3,L)*U(3)+F8Q(4,L)*U(4)+   
+     1F8Q(5,L)*U(5)+F8Q(6,L)*U(6)+F8Q(7,L)*U(7)+F8Q(8,L)*U(8)
+      U9Q(L)=F9Q(1,L)*U(1)+F9Q(2,L)*U(2)+F9Q(3,L)*U(3)+F9Q(4,L)*U(4)+   
+     1F9Q(5,L)*U(5)+F9Q(6,L)*U(6)+F9Q(7,L)*U(7)+F9Q(8,L)*U(8)+          
+     2F9Q(9,L)*U(9)
+C
+      T6Q(L)=F6Q(1,L)*T(1)+F6Q(2,L)*T(2)+F6Q(3,L)*T(3)+F6Q(4,L)*T(4)+   
+     1F6Q(5,L)*T(5)+F6Q(6,L)*T(6)
+      T8Q(L)=F8Q(1,L)*T(1)+F8Q(2,L)*T(2)+F8Q(3,L)*T(3)+F8Q(4,L)*T(4)+   
+     1F8Q(5,L)*T(5)+F8Q(6,L)*T(6)+F8Q(7,L)*T(7)+F8Q(8,L)*T(8)
+      T9Q(L)=F9Q(1,L)*T(1)+F9Q(2,L)*T(2)+F9Q(3,L)*T(3)+F9Q(4,L)*T(4)+   
+     1F9Q(5,L)*T(5)+F9Q(6,L)*T(6)+F9Q(7,L)*T(7)+F9Q(8,L)*T(8)+          
+     2F9Q(9,L)*T(9)
+C
+      V16Q(L)=F6Q(1,L)*V1(1)+F6Q(2,L)*V1(2)+F6Q(3,L)*V1(3)+             
+     1F6Q(4,L)*V1(4)+F6Q(5,L)*V1(5)+F6Q(6,L)*V1(6)
+      V18Q(L)=F8Q(1,L)*V1(1)+F8Q(2,L)*V1(2)+F8Q(3,L)*V1(3)+             
+     1F8Q(4,L)*V1(4)+F8Q(5,L)*V1(5)+F8Q(6,L)*V1(6)+F8Q(7,L)*V1(7)+      
+     2F8Q(8,L)*V1(8)
+      V19Q(L)=F9Q(1,L)*V1(1)+F9Q(2,L)*V1(2)+F9Q(3,L)*V1(3)+             
+     1F9Q(4,L)*V1(4)+F9Q(5,L)*V1(5)+F9Q(6,L)*V1(6)+F9Q(7,L)*V1(7)+      
+     2F9Q(8,L)*V1(8)+F9Q(9,L)*V1(9)
+C
+      V26Q(L)=F6Q(1,L)*V2(1)+F6Q(2,L)*V2(2)+F6Q(3,L)*V2(3)+             
+     1F6Q(4,L)*V2(4)+F6Q(5,L)*V2(5)+F6Q(6,L)*V2(6)
+      V28Q(L)=F8Q(1,L)*V2(1)+F8Q(2,L)*V2(2)+F8Q(3,L)*V2(3)+             
+     1F8Q(4,L)*V2(4)+F8Q(5,L)*V2(5)+F8Q(6,L)*V2(6)+F8Q(7,L)*V2(7)+      
+     2F8Q(8,L)*V2(8)
+      V29Q(L)=F9Q(1,L)*V2(1)+F9Q(2,L)*V2(2)+F9Q(3,L)*V2(3)+             
+     1F9Q(4,L)*V2(4)+F9Q(5,L)*V2(5)+F9Q(6,L)*V2(6)+F9Q(7,L)*V2(7)+      
+     2F9Q(8,L)*V2(8)+F9Q(9,L)*V2(9)
+C
+      RAD6L(L)=F6L(1,L)*X(1)+F6L(2,L)*X(2)+F6L(3,L)*X(3)
+      RAD6Q(L)=F6Q(1,L)*X(1)+F6Q(2,L)*X(2)+F6Q(3,L)*X(3)+F6Q(4,L)*X(4)+ 
+     1F6Q(5,L)*X(5)+F6Q(6,L)*X(6)
+C
+      RAD8L(L)=F8L(1,L)*X(1)+F8L(2,L)*X(2)+F8L(3,L)*X(3)+F8L(4,L)*X(4)
+      RAD8Q(L)=F8Q(1,L)*X(1)+F8Q(2,L)*X(2)+F8Q(3,L)*X(3)+F8Q(4,L)*X(4)+ 
+     1F8Q(5,L)*X(5)+F8Q(6,L)*X(6)+F8Q(7,L)*X(7)+F8Q(8,L)*X(8)
+C
+      RAD9L(L)=F9L(1,L)*X(1)+F9L(2,L)*X(2)+F9L(3,L)*X(3)+F9L(4,L)*X(4)
+      RAD9Q(L)=F9Q(1,L)*X(1)+F9Q(2,L)*X(2)+F9Q(3,L)*X(3)+F9Q(4,L)*X(4)+ 
+     1F9Q(5,L)*X(5)+F9Q(6,L)*X(6)+F9Q(7,L)*X(7)+F9Q(8,L)*X(8)+          
+     2F9Q(9,L)*X(9)
+C
+      P6L(L)=F6L(1,L)*P(1)+F6L(2,L)*P(2)+F6L(3,L)*P(3)
+      P8L(L)=F8L(1,L)*P(1)+F8L(2,L)*P(2)+F8L(3,L)*P(3)+F8L(4,L)*P(4)
+      P9L(L)=F9L(1,L)*P(1)+F9L(2,L)*P(2)+F9L(3,L)*P(3)+F9L(4,L)*P(4)
+C
+      DX(S)=.5*(2.*S-1.)*X1-2.*S*X2+.5*(2.*S+1.)*X3
+      DY(S)=.5*(2.*S-1.)*Y1-2.*S*Y2+.5*(2.*S+1.)*Y3
+      DS(S)=SQRT(DX(S)**2+DY(S)**2)
+C
+C     SET CONTROL PARAMETERS
+C
+      IWRTP=0
+      ILOCM=0
+      ILOCE=0
+      IF (CDATA(3).EQ.'SAVE      ') THEN
+      IWRTP=1
+      ILOCE=1
+      ILOCM=1
+      WRITE (NOUT, 1430)
+       ELSE
+      IF (CDATA(2).EQ.'GAUSS     ') THEN
+      ILOCE=1
+      CDATA(4)='FULL'
+      END IF
+      IF (CDATA(4).EQ.'FULL'.OR.IDATA(4).EQ.0) THEN
+      ILOCM=1
+      WRITE (NOUT, 1440)
+       ELSE
+      DO 10 I=1,50
+      IF (IDATA(I+3).EQ.0) GO TO 20
+      NEL(I)=IDATA(I+3)
+   10 CONTINUE
+      I=51
+   20 CONTINUE
+      NUM=I-1
+      WRITE (NOUT, 1160) (NEL(I),I=1,NUM)
+      END IF
+      END IF
+      IF (ILOCE.EQ.0) WRITE (NOUT, 1140)
+      IF (ILOCE.EQ.1) WRITE (NOUT, 1150)
+C
+C     EVALUATE SHAPE FUNCTIONS AND  DERIVATIVES AT THE FLUX
+C     COMPUTATION POINTS
+C
+      IF (ILOCE.EQ.0) THEN
+      NSTRSQ=8
+      NSTRST=6
+      DO 30 I=1,NSTRSQ
+      SQD(I)=SPTQA(I)
+      TQD(I)=TPTQA(I)
+   30 CONTINUE
+      DO 40 I=1,NSTRST
+      STRI(I)=SPTTA(I)
+      TTRI(I)=TPTTA(I)
+   40 CONTINUE
+       ELSE
+      NSTRSQ=4
+      NSTRST=3
+      DO 50 I=1,NSTRSQ
+      SQD(I)=SPTQB(I)
+      TQD(I)=TPTQB(I)
+   50 CONTINUE
+      DO 60 I=1,NSTRST
+      STRI(I)=SPTTB(I)
+      TTRI(I)=TPTTB(I)
+   60 CONTINUE
+      END IF
+      CALL FLUX6 (NSTRST,STRI,TTRI)
+      CALL FLUX8 (NSTRSQ,SQD,TQD)
+      CALL FLUX9 (NSTRSQ,SQD,TQD)
+C
+C     SET PARAMETERS FOR FLUX TYPE, TIME INCREMENTS, ETC.
+C
+      REWIND (NTP8)
+   70 CONTINUE
+      KOUNT=0
+      NSTEPS=0
+      NINC=0
+      ITIME=0
+      ISTRES=0
+      IHEAT=0
+      IFLUX1=0
+      IFLUX2=0
+      REWIND (NTP9)
+      IF (IWRTP.EQ.1) THEN
+      CDATA (1)='FLUXLOOP'
+      CDATA (2)='ALLTIMES'
+      GO TO 90
+      END IF
+   80 CONTINUE
+      CALL RDFFLD (NIN,RDATA,IDATA,CDATA)
+   90 CONTINUE
+      IF (CDATA(1).EQ.'END       ') GO TO 1130
+      IF (CDATA(1).EQ.'FLUXEND   ') GO TO 70
+      IF (CDATA(1).EQ.'FLUXLOOP  ') GO TO 100
+      IF (CDATA(1).EQ.'ALLFLUX   ') GO TO 110
+      IF (CDATA(1).EQ.'STRESS    ') GO TO 120
+      IF (CDATA(1).EQ.'HEATFLUX  ') GO TO 130
+      IF (CDATA(1).EQ.'AUXFLUX1  ') GO TO 140
+      IF (CDATA(1).EQ.'AUXFLUX2  ') GO TO 150
+      CALL ERROR ('FLUXES','UNRECOGNIZED FLUX COMMAND' ,' ',0,' ',0,    
+     1'WORD',CDATA(1),1)
+  100 CONTINUE
+      IF (CDATA(2).EQ.'ALLTIMES  ') THEN
+      NSTEPS=5000
+      NINC=1
+      ITIME=1
+       ELSE
+      NSTEPS=IDATA(2)
+      NINC=IDATA(3)
+      END IF
+      GO TO 80
+  110 CONTINUE
+      ISTRES=1
+      IF (IFORCE+IFREE.GT.0) IHEAT=1
+      IF (IVAR1.EQ.1) IFLUX1=1
+      IF (IVAR2.EQ.1) IFLUX2=1
+      KSTEP=IDATA(2)
+      IF (ITIME.EQ.1) KSTEP=1
+      GO TO 160
+  120 CONTINUE
+      ISTRES=1
+      KSTEP=IDATA(2)
+      GO TO 160
+  130 CONTINUE
+      IF (IFORCE+IFREE.GT.0) IHEAT=1
+      KSTEP=IDATA(2)
+      GO TO 160
+  140 CONTINUE
+      IF (IVAR1.EQ.1) IFLUX1=1
+      KSTEP=IDATA(2)
+      GO TO 160
+  150 CONTINUE
+      IF (IVAR2.EQ.1) IFLUX2=1
+      KSTEP=IDATA(2)
+  160 CONTINUE
+      IF (IWRTP.EQ.1) KSTEP=1
+      IF (ITMDEP.EQ.0) THEN
+      NSTEPS=1
+      KSTEP=1
+      NINC=0
+      END IF
+      WRITE (NOUT, 1460)
+      IF (ISTRES.EQ.1) WRITE (NOUT, 1480)
+      IF (IHEAT.EQ.1)  WRITE (NOUT, 1490)
+      IF (IFLUX1.EQ.1) WRITE (NOUT, 1500)
+      IF (IFLUX2.EQ.1) WRITE (NOUT, 1510)
+      IF (IWRTP.EQ.1) GO TO 170
+      IF (ITIME.EQ.1) THEN
+      WRITE (NOUT, 1520)
+       ELSE
+      WRITE (NOUT, 1530) NSTEPS,KSTEP,NINC
+      END IF
+  170 CONTINUE
+C
+C     READ SOLUTION FIELD
+C
+      DO 180 K=1,KSTEP
+      READ (NTP9, END=190) TIME,NUMNOD,NUMVAR,((UN(I,J),I=1,NUMNOD),    
+     1 J=1,NUMVAR)
+  180 CONTINUE
+      GO TO 200
+  190 CONTINUE
+      WRITE (NOUT, 1450)
+      GO TO 80
+  200 CONTINUE
+      KOUNT=KOUNT+1
+      IF (ILOCE.EQ.0) WRITE (NOUT, 1470) TIME
+      DO 210 I=1,NUMNOD
+      LISTND(I)=0
+  210 CONTINUE
+      DO 220 I=1,NUMNOD
+      DO 220 J=1,NFLUX
+      USAVE(I,J)=0.
+  220 CONTINUE
+C
+C     LOOP ON ELEMENTS AND COMPUTE FLUXES
+C
+      DO 980 N=1,NUMEL
+      IF (ILOCM.EQ.1) GO TO 240
+      DO 230 I=1,NUM
+      IF (N.EQ.NEL(I)) GO TO 240
+  230 CONTINUE
+      GO TO 980
+  240 CONTINUE
+      MAT=ABS(LISTEL(N))/100
+      ISOLID=0
+      IF (PROP(15,MAT).EQ.3.0) ISOLID=1
+      NN=ABS(LISTEL(N))
+      KIND=MOD(NN,100)
+      NN=NNELM(KIND)
+      DO 250 I=1,NN
+      INODE=ICON(N,I)
+      X(I)=XS(INODE)
+      Y(I)=YS(INODE)
+      U(I)=UN(INODE,1)
+      V(I)=UN(INODE,2)
+      P(I)=UN(INODE,3)
+  250 CONTINUE
+      IF (IFORCE+IFREE.GT.0) THEN
+      DO 260 I=1,NN
+      INODE=ICON(N,I)
+      T(I)=UN(INODE,4)
+  260 CONTINUE
+      END IF
+      IF (IVAR1.EQ.1) THEN
+      DO 270 I=1,NN
+      INODE=ICON(N,I)
+      V1(I)=UN(INODE,5)
+  270 CONTINUE
+      END IF
+      IF (IVAR2.EQ.1) THEN
+      DO 280 I=1,NN
+      INODE=ICON(N,I)
+      V2(I)=UN(INODE,6)
+  280 CONTINUE
+      END IF
+C
+      GO TO (650, 660, 290, 300, 290, 310), KIND
+C
+C     SUBPARAMETRIC AND ISOPARAMETRIC QUADRILATERALS
+C
+  290 CONTINUE
+      A1=-X(1)+X(2)+X(3)-X(4)
+      A2=X(1)-X(2)+X(3)-X(4)
+      A3=0.
+      A4=0.
+      A5=0.
+      A6=0.
+      B1=-Y(1)+Y(2)+Y(3)-Y(4)
+      B2=Y(1)-Y(2)+Y(3)-Y(4)
+      B3=0.
+      B4=0.
+      B5=0.
+      B6=0.
+      C1=-X(1)-X(2)+X(3)+X(4)
+      C2=X(1)-X(2)+X(3)-X(4)
+      C3=0.
+      C4=0.
+      C5=0.
+      C6=0.
+      D1=-Y(1)-Y(2)+Y(3)+Y(4)
+      D2=Y(1)-Y(2)+Y(3)-Y(4)
+      D3=0.
+      D4=0.
+      D5=0.
+      D6=0.
+      GO TO 320
+  300 CONTINUE
+      A1=2.*(X(6)-X(8))
+      A2=X(1)-X(2)+X(3)-X(4)
+      A3=2.*(X(1)+X(2)+X(3)+X(4)-2.*X(5)-2.*X(7))
+      A4=2.*(-X(1)-X(2)+X(3)+X(4)+2.*X(5)-2.*X(7))
+      A5=-X(1)+X(2)+X(3)-X(4)-2.*X(6)+2.*X(8)
+      A6=0.
+      B1=2.*(Y(6)-Y(8))
+      B2=Y(1)-Y(2)+Y(3)-Y(4)
+      B3=2.*(Y(1)+Y(2)+Y(3)+Y(4)-2.*Y(5)-2.*Y(7))
+      B4=2.*(-Y(1)-Y(2)+Y(3)+Y(4)+2.*Y(5)-2.*Y(7))
+      B5=-Y(1)+Y(2)+Y(3)-Y(4)-2.*Y(6)+2.*Y(8)
+      B6=0.
+      C1=2.*(X(7)-X(5))
+      C2=X(1)-X(2)+X(3)-X(4)
+      C3=2.*(X(1)+X(2)+X(3)+X(4)-2.*X(6)-2.*X(8))
+      C4=2.*(-X(1)+X(2)+X(3)-X(4)-2.*X(6)+2.*X(8))
+      C5=-X(1)-X(2)+X(3)+X(4)+2.*X(5)-2.*X(7)
+      C6=0.
+      D1=2.*(Y(7)-Y(5))
+      D2=Y(1)-Y(2)+Y(3)-Y(4)
+      D3=2.*(Y(1)+Y(2)+Y(3)+Y(4)-2.*Y(6)-2.*Y(8))
+      D4=2.*(-Y(1)+Y(2)+Y(3)-Y(4)-2.*Y(6)+2.*Y(8))
+      D5=-Y(1)-Y(2)+Y(3)+Y(4)+2.*Y(5)-2.*Y(7)
+      D6=0.
+      GO TO 320
+  310 CONTINUE
+      A1=2.*(X(6)-X(8))
+      A2=X(1)-X(2)+X(3)-X(4)
+      A3=4.*(X(6)+X(8)-2.*X(9))
+      A4=2.*(-X(1)-X(2)+X(3)+X(4)+2.*X(5)-2.*X(7))
+      A5=-X(1)+X(2)+X(3)-X(4)-2.*X(6)+2.*X(8)
+      A6=2.*(X(1)+X(2)+X(3)+X(4)-2.*(X(5)+X(6)+X(7)+X(8))+4.*X(9))
+      B1=2.*(Y(6)-Y(8))
+      B2=Y(1)-Y(2)+Y(3)-Y(4)
+      B3=4.*(Y(6)+Y(8)-2.*Y(9))
+      B4=2.*(-Y(1)-Y(2)+Y(3)+Y(4)+2.*Y(5)-2.*Y(7))
+      B5=-Y(1)+Y(2)+Y(3)-Y(4)-2.*Y(6)+2.*Y(8)
+      B6=2*(Y(1)+Y(2)+Y(3)+Y(4)-2.*(Y(5)+Y(6)+Y(7)+Y(8))+4.*Y(9))
+      C1=2.*(X(7)-X(5))
+      C2=X(1)-X(2)+X(3)-X(4)
+      C3=4.*(X(5)+X(7)-2.*X(9))
+      C4=2.*(-X(1)+X(2)+X(3)-X(4)-2.*X(6)+2.*X(8))
+      C5=-X(1)-X(2)+X(3)+X(4)+2.*X(5)-2.*X(7)
+      C6=2.*(X(1)+X(2)+X(3)+X(4)-2.*(X(5)+X(6)+X(7)+X(8))+4.*X(9))
+      D1=2.*(Y(7)-Y(5))
+      D2=Y(1)-Y(2)+Y(3)-Y(4)
+      D3=4.*(Y(5)+Y(7)-2.*Y(9))
+      D4=2.*(-Y(1)+Y(2)+Y(3)-Y(4)-2.*Y(6)+2.*Y(8))
+      D5=-Y(1)-Y(2)+Y(3)+Y(4)+2.*Y(5)-2.*Y(7)
+      D6=2*(Y(1)+Y(2)+Y(3)+Y(4)-2.*(Y(5)+Y(6)+Y(7)+Y(8))+4.*Y(9))
+  320 CONTINUE
+C
+C     STRESS AND VORTICITY EVALUATION
+C
+      IF (ISTRES.EQ.0) GO TO 430
+      DO 380 I=1,NSTRSQ
+      QNT1=0.
+      QNT2=0.
+      QNT3=0.
+      QNT4=0.
+      A=F11Q(SQD(I),TQD(I))
+      B=F21Q(SQD(I),TQD(I))
+      C=F12Q(SQD(I),TQD(I))
+      D=F22Q(SQD(I),TQD(I))
+      E=1./DETJQ(SQD(I),TQD(I))
+      IF (KIND.GE.5) GO TO 340
+C
+C     EIGHT-NODE ELEMENTS
+C
+      RG=RAD8L(I)
+      IF (KIND.EQ.4) RG=RAD8Q(I)
+      UG=U8Q(I)
+      DO 330 J=1,NN
+      AA=DF8QDS(J,I)*A+DF8QDT(J,I)*C
+      BB=DF8QDS(J,I)*B+DF8QDT(J,I)*D
+      QNT1=QNT1+AA*U(J)*E
+      QNT2=QNT2+BB*V(J)*E
+      QNT3=QNT3+AA*V(J)*E+BB*U(J)*E
+      QNT4=QNT4+(BB*U(J)-AA*V(J))*E
+  330 CONTINUE
+      PRESS=P8L(I)
+      PARAM1=PROP(2,MAT)
+      IF (PROP(15,MAT).EQ.4.0) PARAM1=PROP(3,MAT)
+      IF (PROP(8,MAT).EQ.1.0) GO TO 370
+      TLOC=T8Q(I)
+      SLOC=2.*(QNT1**2+QNT2**2)+(QNT3**2)+IAXSYM*2.*(UG/RG)**2
+      V1LOC=V18Q(I)
+      V2LOC=V28Q(I)
+      GO TO 360
+C
+C     NINE-NODE ELEMENTS
+C
+  340 CONTINUE
+      RG=RAD9L(I)
+      IF (KIND.EQ.6) RG=RAD9Q(I)
+      UG=U9Q(I)
+      DO 350 J=1,NN
+      AA=DF9QDS(J,I)*A+DF9QDT(J,I)*C
+      BB=DF9QDS(J,I)*B+DF9QDT(J,I)*D
+      QNT1=QNT1+AA*U(J)*E
+      QNT2=QNT2+BB*V(J)*E
+      QNT3=QNT3+AA*V(J)*E+BB*U(J)*E
+      QNT4=QNT4+(BB*U(J)-AA*V(J))*E
+  350 CONTINUE
+      PRESS=P9L(I)
+      PARAM1=PROP(2,MAT)
+      IF (PROP(15,MAT).EQ.4.0) PARAM1=PROP(3,MAT)
+      IF (PROP(8,MAT).EQ.1.0) GO TO 370
+      TLOC=T9Q(I)
+      SLOC=2.*(QNT1**2+QNT2**2)+(QNT3**2)+IAXSYM*2.*(UG/RG)**2
+      V1LOC=V19Q(I)
+      V2LOC=V29Q(I)
+  360 CONTINUE
+C
+      CALL USRVIS (PARAM1,TLOC,SLOC,V1LOC,V2LOC,1,MAT,0)
+  370 CONTINUE
+      TXX(I)=2.*PARAM1*QNT1
+      TYY(I)=2.*PARAM1*QNT2
+      TXY(I)=PARAM1*QNT3
+      VORT(I)=QNT4
+      IF (IAXSYM.EQ.1) TZZ(I)=2.*PARAM1*(UG/RG)
+  380 CONTINUE
+      NSTRS=NSTRSQ
+C
+      IF (ILOCE.EQ.1) GO TO 420
+      NSIDE=NSTRSQ/2
+      DO 410 I=1,NSIDE
+      X1=X(I)
+      X2=X(I+NSIDE)
+      X3=X(I+1)
+      Y1=Y(I)
+      Y2=Y(I+NSIDE)
+      Y3=Y(I+1)
+      IF (I.EQ.NSIDE) X1=X(1)
+      IF (I.EQ.NSIDE) Y1=Y(1)
+      GO TO (390, 390, 390, 400, 390, 400), KIND
+  390 CONTINUE
+      XSIDE=(X3-X1)/2.
+      YSIDE=(Y3-Y1)/2.
+      DSP=SQRT(XSIDE**2+YSIDE**2)
+      II=2*I-1
+      JJ=2*I
+      A=XSIDE/DSP
+      B=YSIDE/DSP
+      IF (B.EQ.0.) B=1.0E-15
+      ANG=ATAN2(A,B)
+      TN(II)=TXX(II)*(COS(ANG)**2)+TYY(II)*(SIN(ANG)**2)+               
+     12.*TXY(II)*SIN(ANG)*COS(ANG)
+      TS(II)=TXX(II)*(SIN(ANG)**2)+TYY(II)*(COS(ANG)**2)+               
+     12.*TXY(II)*SIN(ANG)*COS(ANG)
+      TSN(II)=(-TXX(II)+TYY(II))*SIN(ANG)*COS(ANG)+                     
+     1TXY(II)*(COS(ANG)**2-SIN(ANG)**2)
+      TN(JJ)=TXX(JJ)*(COS(ANG)**2)+TYY(JJ)*(SIN(ANG)**2)+               
+     12.*TXY(JJ)*SIN(ANG)*COS(ANG)
+      TS(JJ)=TXX(JJ)*(SIN(ANG)**2)+TYY(JJ)*(COS(ANG)**2)+               
+     12.*TXY(JJ)*SIN(ANG)*COS(ANG)
+      TSN(JJ)=(-TXX(JJ)+TYY(JJ))*SIN(ANG)*COS(ANG)+                     
+     1TXY(JJ)*(COS(ANG)**2-SIN(ANG)**2)
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(X3+X1)
+      FN(I)=(TN(II)+TN(JJ))*DSP*FACTOR
+      FS(I)=(TSN(II)+TSN(JJ))*DSP*FACTOR
+      GO TO 410
+  400 CONTINUE
+      II=2*I-1
+      JJ=2*I
+      XSIDE=DX(-.5)
+      YSIDE=DY(-.5)
+      DSP=DS(-.5)
+      A=XSIDE/DSP
+      B=YSIDE/DSP
+      IF (B.EQ.0.) B=1.0E-15
+      ANG=ATAN2(A,B)
+      TN(II)=TXX(II)*(COS(ANG)**2)+TYY(II)*(SIN(ANG)**2)+               
+     12.*TXY(II)*SIN(ANG)*COS(ANG)
+      TS(II)=TXX(II)*(SIN(ANG)**2)+TYY(II)*(COS(ANG)**2)+               
+     12.*TXY(II)*SIN(ANG)*COS(ANG)
+      TSN(II)=(-TXX(II)+TYY(II))*SIN(ANG)*COS(ANG)+                     
+     1TXY(II)*(COS(ANG)**2-SIN(ANG)**2)
+      XSIDE=DX(.5)
+      YSIDE=DY(.5)
+      DSP=DS(.5)
+      A=XSIDE/DSP
+      B=YSIDE/DSP
+      IF (B.EQ.0.) B=1.0E-15
+      ANG=ATAN2(A,B)
+      TN(JJ)=TXX(JJ)*(COS(ANG)**2)+TYY(JJ)*(SIN(ANG)**2)+               
+     12.*TXY(JJ)*SIN(ANG)*COS(ANG)
+      TS(JJ)=TXX(JJ)*(SIN(ANG)**2)+TYY(JJ)*(COS(ANG)**2)+               
+     12.*TXY(JJ)*SIN(ANG)*COS(ANG)
+      TSN(JJ)=(-TXX(JJ)+TYY(JJ))*SIN(ANG)*COS(ANG)+                     
+     1TXY(JJ)*(COS(ANG)**2-SIN(ANG)**2)
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(.75*X1+1.5*X2-.25*X3)
+      XSIDE=(X2-X1)**2+(Y2-Y1)**2
+      XSIDE=SQRT(XSIDE)*FACTOR
+      IF (IAXSYM.EQ.1) FACTOR=PI*(-.25*X1+1.5*X2+.75*X3)
+      YSIDE=(X3-X2)**2+(Y3-Y2)**2
+      YSIDE=SQRT(YSIDE)*FACTOR
+      FN(I)=TN(II)*XSIDE+TN(JJ)*YSIDE
+      FS(I)=TSN(II)*XSIDE+TSN(JJ)*YSIDE
+  410 CONTINUE
+      GO TO 430
+  420 CONTINUE
+      CALL EXTRAP (KIND,TXX)
+      CALL EXTRAP (KIND,TYY)
+      CALL EXTRAP (KIND,TXY)
+      IF (IAXSYM.EQ.1) CALL EXTRAP (KIND,TZZ)
+      CALL EXTRAP (KIND,VORT)
+C
+C     HEAT FLUX EVALUATION
+C
+  430 CONTINUE
+      IF (IHEAT.EQ.0) GO TO 540
+      DO 490 I=1,NSTRSQ
+      QNT1=0.
+      QNT2=0.
+      A=F11Q(SQD(I),TQD(I))
+      B=F21Q(SQD(I),TQD(I))
+      C=F12Q(SQD(I),TQD(I))
+      D=F22Q(SQD(I),TQD(I))
+      E=1./DETJQ(SQD(I),TQD(I))
+      IF (KIND.GE.5) GO TO 450
+C
+C     EIGHT-NODE ELEMENTS
+C
+      DO 440 J=1,NN
+      AA=DF8QDS(J,I)*A+DF8QDT(J,I)*C
+      BB=DF8QDS(J,I)*B+DF8QDT(J,I)*D
+      QNT1=QNT1+AA*T(J)*E
+      QNT2=QNT2+BB*T(J)*E
+  440 CONTINUE
+      PARAM1=PROP(4,MAT)
+      IF (PROP(15,MAT).EQ.4.0) PARAM1=PROP(7,MAT)
+      IF (PROP(8,MAT).EQ.1.0) GO TO 480
+      TLOC=T8Q(I)
+      V1LOC=V18Q(I)
+      V2LOC=V28Q(I)
+      GO TO 470
+C
+C     NINE-NODE ELEMENTS
+C
+  450 CONTINUE
+      DO 460 J=1,NN
+      AA=DF9QDS(J,I)*A+DF9QDT(J,I)*C
+      BB=DF9QDS(J,I)*B+DF9QDT(J,I)*D
+      QNT1=QNT1+AA*T(J)*E
+      QNT2=QNT2+BB*T(J)*E
+  460 CONTINUE
+      PARAM1=PROP(4,MAT)
+      IF (PROP(15,MAT).EQ.4.0) PARAM1=PROP(7,MAT)
+      IF (PROP(8,MAT).EQ.1.0) GO TO 480
+      TLOC=T9Q(I)
+      SLOC=1.0
+      V1LOC=V19Q(I)
+      V2LOC=V29Q(I)
+  470 CONTINUE
+C
+      CALL USRCON (PARAM1,TLOC,SLOC,V1LOC,V2LOC,1,MAT)
+  480 CONTINUE
+      QXX(I)=-PARAM1*QNT1
+      QYY(I)=-PARAM1*QNT2
+  490 CONTINUE
+      NSTRS=NSTRSQ
+C
+      IF (ILOCE.EQ.1) GO TO 530
+      NSIDE=NSTRSQ/2
+      DO 520 I=1,NSIDE
+      X1=X(I)
+      X2=X(I+NSIDE)
+      X3=X(I+1)
+      Y1=Y(I)
+      Y2=Y(I+NSIDE)
+      Y3=Y(I+1)
+      IF (I.EQ.NSIDE) X3=X(1)
+      IF (I.EQ.NSIDE) Y3=Y(1)
+      GO TO (500, 500, 500, 510, 500, 510), KIND
+  500 CONTINUE
+      XSIDE=(X3-X1)/2.
+      YSIDE=(Y3-Y1)/2.
+      DSP=SQRT(XSIDE**2+YSIDE**2)
+      II=2*I-1
+      JJ=2*I
+      QN(II)=(QXX(II)*YSIDE-QYY(II)*XSIDE)/DSP
+      QN(JJ)=(QXX(JJ)*YSIDE-QYY(JJ)*XSIDE)/DSP
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(X3+X1)
+      QA(I)=(QN(II)+QN(JJ))*DSP*FACTOR
+      GO TO 520
+  510 CONTINUE
+      II=2*I-1
+      JJ=2*I
+      XSIDE=DX(-.5)
+      YSIDE=DY(-.5)
+      DSP=DS(-.5)
+      QN(II)=(QXX(II)*YSIDE-QYY(II)*XSIDE)/DSP
+      XSIDE=DX(.5)
+      YSIDE=DY(.5)
+      DSP=DS(.5)
+      QN(JJ)=(QXX(JJ)*YSIDE-QYY(JJ)*XSIDE)/DSP
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(.75*X1+1.5*X2-.25*X3)
+      XSIDE=(X2-X1)**2+(Y2-Y1)**2
+      XSIDE=SQRT(XSIDE)*FACTOR
+      IF (IAXSYM.EQ.1) FACTOR=PI*(-.25*X1+1.5*X2+.75*X3)
+      YSIDE=(X3-X2)**2+(Y3-Y2)**2
+      YSIDE=SQRT(YSIDE)*FACTOR
+      QA(I)=QN(II)*XSIDE+QN(JJ)*YSIDE
+  520 CONTINUE
+      GO TO 540
+  530 CONTINUE
+      CALL EXTRAP (KIND,QXX)
+      CALL EXTRAP (KIND,QYY)
+C
+C     VARIABLE 1 AND VARIABLE 2 FLUX EVALUATION
+C
+  540 CONTINUE
+      IF (IFLUX1.EQ.0.AND.IFLUX2.EQ.0) GO TO 910
+      DO 600 I=1,NSTRSQ
+      QNT1=0.
+      QNT2=0.
+      QNT3=0.
+      QNT4=0.
+      A=F11Q(SQD(I),TQD(I))
+      B=F21Q(SQD(I),TQD(I))
+      C=F12Q(SQD(I),TQD(I))
+      D=F22Q(SQD(I),TQD(I))
+      E=1./DETJQ(SQD(I),TQD(I))
+      IF (KIND.GE.5) GO TO 560
+C
+C     EIGHT-NODE ELEMENTS
+C
+      DO 550 J=1,NN
+      AA=DF8QDS(J,I)*A+DF8QDT(J,I)*C
+      BB=DF8QDS(J,I)*B+DF8QDT(J,I)*D
+      QNT1=QNT1+AA*V1(J)*E
+      QNT2=QNT2+BB*V1(J)*E
+      QNT3=QNT3+AA*V2(J)*E
+      QNT4=QNT4+BB*V2(J)*E
+  550 CONTINUE
+      PARAM1=XPROP(2,MAT)
+      PARAM2=XPROP(8,MAT)
+      IF (PROP(8,MAT).EQ.1.0) GO TO 590
+      TLOC=T8Q(I)
+      V1LOC=V18Q(I)
+      V2LOC=V28Q(I)
+      GO TO 580
+C
+C     NINE-NODE ELEMENTS
+C
+  560 CONTINUE
+      DO 570 J=1,NN
+      AA=DF9QDS(J,I)*A+DF9QDT(J,I)*C
+      BB=DF9QDS(J,I)*B+DF9QDT(J,I)*D
+      QNT1=QNT1+AA*V1(J)*E
+      QNT2=QNT2+BB*V1(J)*E
+      QNT3=QNT3+AA*V2(J)*E
+      QNT4=QNT4+BB*V2(J)*E
+  570 CONTINUE
+      PARAM1=XPROP(2,MAT)
+      PARAM2=XPROP(8,MAT)
+      IF (PROP(8,MAT).EQ.1.0) GO TO 590
+      TLOC=T9Q(I)
+      V1LOC=V19Q(I)
+      V2LOC=V29Q(I)
+  580 CONTINUE
+C
+      IF (IVAR1.EQ.1) CALL USRDIF (PARAM1,TLOC,V1LOC,V2LOC,1,MAT,1)
+      IF (IVAR2.EQ.1) CALL USRDIF (PARAM2,TLOC,V1LOC,V2LOC,1,MAT,2)
+  590 CONTINUE
+      F1XX(I)=-PARAM1*QNT1
+      F1YY(I)=-PARAM1*QNT2
+      F2XX(I)=-PARAM2*QNT3
+      F2YY(I)=-PARAM2*QNT4
+  600 CONTINUE
+      NSTRS=NSTRSQ
+C
+      IF (ILOCE.EQ.1) GO TO 640
+      NSIDE=NSTRSQ/2
+      DO 630 I=1,NSIDE
+      X1=X(I)
+      X2=X(I+NSIDE)
+      X3=X(I+1)
+      Y1=Y(I)
+      Y2=Y(I+NSIDE)
+      Y3=Y(I+1)
+      IF (I.EQ.NSIDE) X3=X(1)
+      IF (I.EQ.NSIDE) Y3=Y(1)
+      GO TO (610, 620, 610, 620, 610, 620), KIND
+  610 CONTINUE
+      XSIDE=(X3-X1)/2.
+      YSIDE=(Y3-Y1)/2.
+      DSP=SQRT(XSIDE**2+YSIDE**2)
+      II=2*I-1
+      JJ=2*I
+      F1N(II)=(F1XX(II)*YSIDE-F1YY(II)*XSIDE)/DSP
+      F1N(JJ)=(F1XX(JJ)*YSIDE-F1YY(JJ)*XSIDE)/DSP
+      F2N(II)=(F2XX(II)*YSIDE-F2YY(II)*XSIDE)/DSP
+      F2N(JJ)=(F2XX(JJ)*YSIDE-F2YY(JJ)*XSIDE)/DSP
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(X3+X1)
+      F1A(I)=(F1N(II)+F1N(JJ))*DSP*FACTOR
+      F2A(I)=(F2N(II)+F2N(JJ))*DSP*FACTOR
+      GO TO 630
+  620 CONTINUE
+      II=2*I-1
+      JJ=2*I
+      XSIDE=DX(-.5)
+      YSIDE=DY(-.5)
+      DSP=DS(-.5)
+      F1N(II)=(F1XX(II)*YSIDE-F1YY(II)*XSIDE)/DSP
+      F2N(II)=(F2XX(II)*YSIDE-F2YY(II)*XSIDE)/DSP
+      XSIDE=DX(.5)
+      YSIDE=DY(.5)
+      DSP=DS(.5)
+      F1N(JJ)=(F1XX(JJ)*YSIDE-F1YY(JJ)*XSIDE)/DSP
+      F2N(JJ)=(F2XX(JJ)*YSIDE-F2YY(JJ)*XSIDE)/DSP
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(.75*X1+1.5*X2-.25*X3)
+      XSIDE=(X2-X1)**2+(Y2-Y1)**2
+      XSIDE=SQRT(XSIDE)*FACTOR
+      IF (IAXSYM.EQ.1) FACTOR=PI*(-.25*X1+1.5*X2+.75*X3)
+      YSIDE=(X3-X2)**2+(Y3-Y2)**2
+      YSIDE=SQRT(YSIDE)*FACTOR
+      F1A(I)=F1N(II)*XSIDE+F1N(JJ)*YSIDE
+      F2A(I)=F2N(II)*XSIDE+F2N(JJ)*YSIDE
+  630 CONTINUE
+      GO TO 910
+  640 CONTINUE
+      CALL EXTRAP (KIND,F1XX)
+      CALL EXTRAP (KIND,F1YY)
+      IF (IFLUX2.EQ.1) THEN
+      CALL EXTRAP (KIND,F2XX)
+      CALL EXTRAP (KIND,F2YY)
+      END IF
+      GO TO 910
+C
+C     SUBPARAMETRIC AND ISOPARAMETRIC TRIANGLE
+C
+  650 CONTINUE
+      A1=0.
+      A2=0.
+      A3=Y(2)-Y(3)
+      B1=0.
+      B2=0.
+      B3=-X(2)+X(3)
+      C1=0.
+      C2=0.
+      C3=-Y(1)+Y(3)
+      D1=0.
+      D2=0.
+      D3=X(1)-X(3)
+      GO TO 670
+  660 CONTINUE
+      A1=4.*(Y(3)+Y(4)-Y(5)-Y(6))
+      A2=4.*(Y(2)+Y(3)-2.*Y(5))
+      A3=4.*Y(5)-3.*Y(3)-Y(2)
+      B1=4.*(X(3)+X(4)-X(5)-X(6))
+      B2=4.*(X(2)+X(3)-2.*X(5))
+      B3=4.*X(5)-3.*X(3)-X(2)
+      C1=4.*(Y(1)+Y(3)-2.*Y(6))
+      C2=4.*(Y(3)+Y(4)-Y(5)-Y(6))
+      C3=4.*Y(6)-3.*Y(3)-Y(1)
+      D1=4.*(X(1)+X(3)-2.*X(6))
+      D2=4.*(X(3)+X(4)-X(5)-X(6))
+      D3=4.*X(6)-3.*X(3)-X(1)
+  670 CONTINUE
+      IF (ISTRES.EQ.0) GO TO 750
+      DO 700 I=1,NSTRST
+      QNT1=0.
+      QNT2=0.
+      QNT3=0.
+      QNT4=0.
+      A=F11T(STRI(I),TTRI(I))
+      B=F21T(STRI(I),TTRI(I))
+      C=F12T(STRI(I),TTRI(I))
+      D=F22T(STRI(I),TTRI(I))
+      E=1./DETJT(STRI(I),TTRI(I))
+      RG=RAD6L(I)
+      IF (KIND.EQ.2) RG=RAD6Q(I)
+      UG=U6Q(I)
+      DO 680 J=1,NN
+      AA=DF6QDS(J,I)*A+DF6QDT(J,I)*C
+      BB=DF6QDS(J,I)*B+DF6QDT(J,I)*D
+      QNT1=QNT1+AA*U(J)*E
+      QNT2=QNT2+BB*V(J)*E
+      QNT3=QNT3+AA*V(J)*E+BB*U(J)*E
+      QNT4=QNT4+(BB*U(J)-AA*V(J))*E
+  680 CONTINUE
+      PRESS=P6L(I)
+      PARAM1=PROP(2,MAT)
+      IF (PROP(15,MAT).EQ.4.0) PARAM1=PROP(3,MAT)
+      IF (PROP(8,MAT).EQ.1.0) GO TO 690
+      TLOC=T6Q(I)
+      SLOC=2.*(QNT1**2+QNT2**2)+(QNT3**2)+IAXSYM*2.*(UG/RG)**2
+      V1LOC=V16Q(I)
+      V2LOC=V26Q(I)
+C
+      CALL USRVIS (PARAM1,TLOC,SLOC,V1LOC,V2LOC,1,MAT,0)
+  690 CONTINUE
+      TXX(I)=2.*PARAM1*QNT1
+      TYY(I)=2.*PARAM1*QNT2
+      TXY(I)=PARAM1*QNT3
+      VORT(I)=QNT4
+      IF (IAXSYM.EQ.1) TZZ(I)=2.*PARAM1*(UG/RG)
+  700 CONTINUE
+      NSTRS=NSTRST
+C
+      IF (ILOCE.EQ.1) GO TO 740
+      NSIDE=NSTRST/2
+      DO 730 I=1,NSIDE
+      X1=X(I)
+      X2=X(I+NSIDE)
+      X3=X(I+1)
+      Y1=Y(I)
+      Y2=Y(I+NSIDE)
+      Y3=Y(I+1)
+      IF (I.EQ.NSIDE) X1=X(1)
+      IF (I.EQ.NSIDE) Y1=Y(1)
+      GO TO (710, 720, 720, 720, 720, 720), KIND
+  710 CONTINUE
+      XSIDE=(X3-X1)/2.
+      YSIDE=(Y3-Y1)/2.
+      DSP=SQRT(XSIDE**2+YSIDE**2)
+      II=2*I-1
+      JJ=2*I
+      A=XSIDE/DSP
+      B=YSIDE/DSP
+      IF (B.EQ.0.) B=1.0E-15
+      ANG=ATAN2(A,B)
+      TN(II)=TXX(II)*(COS(ANG)**2)+TYY(II)*(SIN(ANG)**2)+               
+     12.*TXY(II)*SIN(ANG)*COS(ANG)
+      TS(II)=TXX(II)*(SIN(ANG)**2)+TYY(II)*(COS(ANG)**2)+               
+     12.*TXY(II)*SIN(ANG)*COS(ANG)
+      TSN(II)=(-TXX(II)+TYY(II))*SIN(ANG)*COS(ANG)+                     
+     1TXY(II)*(COS(ANG)**2-SIN(ANG)**2)
+      TN(JJ)=TXX(JJ)*(COS(ANG)**2)+TYY(JJ)*(SIN(ANG)**2)+               
+     12.*TXY(JJ)*SIN(ANG)*COS(ANG)
+      TS(JJ)=TXX(JJ)*(SIN(ANG)**2)+TYY(JJ)*(COS(ANG)**2)+               
+     12.*TXY(JJ)*SIN(ANG)*COS(ANG)
+      TSN(JJ)=(-TXX(JJ)+TYY(JJ))*SIN(ANG)*COS(ANG)+                     
+     1TXY(JJ)*(COS(ANG)**2-SIN(ANG)**2)
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(X3+X1)
+      FN(I)=(TN(II)+TN(JJ))*DSP*FACTOR
+      FS(I)=(TSN(II)+TSN(JJ))*DSP*FACTOR
+      GO TO 730
+  720 CONTINUE
+      II=2*I-1
+      JJ=2*I
+      XSIDE=DX(-.5)
+      YSIDE=DY(-.5)
+      DSP=DS(-.5)
+      A=XSIDE/DSP
+      B=YSIDE/DSP
+      IF (B.EQ.0.) B=1.0E-15
+      ANG=ATAN2(A,B)
+      TN(II)=TXX(II)*(COS(ANG)**2)+TYY(II)*(SIN(ANG)**2)+               
+     12.*TXY(II)*SIN(ANG)*COS(ANG)
+      TS(II)=TXX(II)*(SIN(ANG)**2)+TYY(II)*(COS(ANG)**2)+               
+     12.*TXY(II)*SIN(ANG)*COS(ANG)
+      TSN(II)=(-TXX(II)+TYY(II))*SIN(ANG)*COS(ANG)+                     
+     1TXY(II)*(COS(ANG)**2-SIN(ANG)**2)
+      XSIDE=DX(.5)
+      YSIDE=DY(.5)
+      DSP=DS(.5)
+      A=XSIDE/DSP
+      B=YSIDE/DSP
+      IF (B.EQ.0.) B=1.0E-15
+      ANG=ATAN2(A,B)
+      TN(JJ)=TXX(JJ)*(COS(ANG)**2)+TYY(JJ)*(SIN(ANG)**2)+               
+     12.*TXY(JJ)*SIN(ANG)*COS(ANG)
+      TS(JJ)=TXX(JJ)*(SIN(ANG)**2)+TYY(JJ)*(COS(ANG)**2)+               
+     12.*TXY(JJ)*SIN(ANG)*COS(ANG)
+      TSN(JJ)=(-TXX(JJ)+TYY(JJ))*SIN(ANG)*COS(ANG)+                     
+     1TXY(JJ)*(COS(ANG)**2-SIN(ANG)**2)
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(.75*X1+1.5*X2-.25*X3)
+      XSIDE=(X2-X1)**2+(Y2-Y1)**2
+      XSIDE=SQRT(XSIDE)*FACTOR
+      IF (IAXSYM.EQ.1) FACTOR=PI*(-.25*X1+1.5*X2+.75*X3)
+      YSIDE=(X3-X2)**2+(Y3-Y2)**2
+      YSIDE=SQRT(YSIDE)*FACTOR
+      FN(I)=TN(II)*XSIDE+TN(JJ)*YSIDE
+      FS(I)=TSN(II)*XSIDE+TSN(JJ)*YSIDE
+  730 CONTINUE
+      GO TO 750
+  740 CONTINUE
+      CALL EXTRAP (KIND,TXX)
+      CALL EXTRAP (KIND,TYY)
+      CALL EXTRAP (KIND,TXY)
+      IF (IAXSYM.EQ.1) CALL EXTRAP (KIND,TZZ)
+      CALL EXTRAP (KIND,VORT)
+C
+C     HEAT FLUX EVALUATION
+C
+  750 CONTINUE
+      IF (IHEAT.EQ.0) GO TO 830
+      DO 780 I=1,NSTRST
+      QNT1=0.
+      QNT2=0.
+      A=F11T(STRI(I),TTRI(I))
+      B=F21T(STRI(I),TTRI(I))
+      C=F12T(STRI(I),TTRI(I))
+      D=F22T(STRI(I),TTRI(I))
+      E=1./DETJT(STRI(I),TTRI(I))
+      DO 760 J=1,NN
+      AA=DF6QDS(J,I)*A+DF6QDT(J,I)*C
+      BB=DF6QDS(J,I)*B+DF6QDT(J,I)*D
+      QNT1=QNT1+AA*T(J)*E
+      QNT2=QNT2+BB*T(J)*E
+  760 CONTINUE
+      PARAM1=PROP(4,MAT)
+      IF (PROP(15,MAT).EQ.4.0) PARAM1=PROP(7,MAT)
+      IF (PROP(8,MAT).EQ.1.0) GO TO 770
+      TLOC=T6Q(I)
+      SLOC=1.0
+      V1LOC=V16Q(I)
+      V2LOC=V26Q(I)
+C
+      CALL USRCON (PARAM1,TLOC,SLOC,V1LOC,V2LOC,1,MAT)
+  770 CONTINUE
+      QXX(I)=-PARAM1*QNT1
+      QYY(I)=-PARAM1*QNT2
+  780 CONTINUE
+      NSTRS=NSTRST
+C
+      IF (ILOCE.EQ.1) GO TO 820
+      NSIDE=NSTRST/2
+      DO 810 I=1,NSIDE
+      X1=X(I)
+      X2=X(I+NSIDE)
+      X3=X(I+1)
+      Y1=Y(I)
+      Y2=Y(I+NSIDE)
+      Y3=Y(I+1)
+      IF (I.EQ.NSIDE) X3=X(1)
+      IF (I.EQ.NSIDE) Y3=Y(1)
+      GO TO (790, 800, 800, 800, 800, 800), KIND
+  790 CONTINUE
+      XSIDE=(X3-X1)/2.
+      YSIDE=(Y3-Y1)/2.
+      DSP=SQRT(XSIDE**2+YSIDE**2)
+      II=2*I-1
+      JJ=2*I
+      QN(II)=(QXX(II)*YSIDE-QYY(II)*XSIDE)/DSP
+      QN(JJ)=(QXX(JJ)*YSIDE-QYY(JJ)*XSIDE)/DSP
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(X3+X1)
+      QA(I)=(QN(II)+QN(JJ))*DSP*FACTOR
+      GO TO 810
+  800 CONTINUE
+      II=2*I-1
+      JJ=2*I
+      XSIDE=DX(-.5)
+      YSIDE=DY(-.5)
+      DSP=DS(-.5)
+      QN(II)=(QXX(II)*YSIDE-QYY(II)*XSIDE)/DSP
+      XSIDE=DX(.5)
+      YSIDE=DY(.5)
+      DSP=DS(.5)
+      QN(JJ)=(QXX(JJ)*YSIDE-QYY(JJ)*XSIDE)/DSP
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(.75*X1+1.5*X2-.25*X3)
+      XSIDE=(X2-X1)**2+(Y2-Y1)**2
+      XSIDE=SQRT(XSIDE)*FACTOR
+      IF (IAXSYM.EQ.1) FACTOR=PI*(-.25*X1+1.5*X2+.75*X3)
+      YSIDE=(X3-X2)**2+(Y3-Y2)**2
+      YSIDE=SQRT(YSIDE)*FACTOR
+      QA(I)=QN(II)*XSIDE+QN(JJ)*YSIDE
+  810 CONTINUE
+      GO TO 830
+  820 CONTINUE
+      CALL EXTRAP (KIND,QXX)
+      CALL EXTRAP (KIND,QYY)
+C
+C     VARIABLE 1 AND VARIABLE 2 FLUX EVALUATION
+C
+  830 CONTINUE
+      IF (IFLUX1.EQ.0.AND.IFLUX2.EQ.0) GO TO 910
+      DO 860 I=1,NSTRST
+      QNT1=0.
+      QNT2=0.
+      QNT3=0.
+      QNT4=0.
+      A=F11T(STRI(I),TTRI(I))
+      B=F21T(STRI(I),TTRI(I))
+      C=F12T(STRI(I),TTRI(I))
+      D=F22T(STRI(I),TTRI(I))
+      E=1./DETJT(STRI(I),TTRI(I))
+      DO 840 J=1,NN
+      AA=DF6QDS(J,I)*A+DF6QDT(J,I)*C
+      BB=DF6QDS(J,I)*B+DF6QDT(J,I)*D
+      QNT1=QNT1+AA*V1(J)*E
+      QNT2=QNT2+BB*V1(J)*E
+      QNT3=QNT3+AA*V2(J)*E
+      QNT4=QNT4+BB*V2(J)*E
+  840 CONTINUE
+      PARAM1=XPROP(2,MAT)
+      PARAM2=XPROP(8,MAT)
+      IF (PROP(8,MAT).EQ.1.0) GO TO 850
+      TLOC=T6Q(I)
+      V1LOC=V16Q(I)
+      V2LOC=V26Q(I)
+C
+      IF (IVAR1.EQ.1) CALL USRDIF (PARAM1,TLOC,V1LOC,V2LOC,1,MAT,1)
+      IF (IVAR2.EQ.1) CALL USRDIF (PARAM2,TLOC,V1LOC,V2LOC,1,MAT,2)
+  850 CONTINUE
+      F1XX(I)=-PARAM1*QNT1
+      F1YY(I)=-PARAM1*QNT2
+      F2XX(I)=-PARAM2*QNT3
+      F2YY(I)=-PARAM2*QNT4
+  860 CONTINUE
+      NSTRS=NSTRST
+C
+      IF (ILOCE.EQ.1) GO TO 900
+      NSIDE=NSTRST/2
+      DO 890 I=1,NSIDE
+      X1=X(I)
+      X2=X(I+NSIDE)
+      X3=X(I+1)
+      Y1=Y(I)
+      Y2=Y(I+NSIDE)
+      Y3=Y(I+1)
+      IF (I.EQ.NSIDE) X3=X(1)
+      IF (I.EQ.NSIDE) Y3=Y(1)
+      GO TO (870, 880, 880, 880, 880, 880), KIND
+  870 CONTINUE
+      XSIDE=(X3-X1)/2.
+      YSIDE=(Y3-Y1)/2.
+      DSP=SQRT(XSIDE**2+YSIDE**2)
+      II=2*I-1
+      JJ=2*I
+      F1N(II)=(F1XX(II)*YSIDE-F1YY(II)*XSIDE)/DSP
+      F1N(JJ)=(F1XX(JJ)*YSIDE-F1YY(JJ)*XSIDE)/DSP
+      F2N(II)=(F2XX(II)*YSIDE-F2YY(II)*XSIDE)/DSP
+      F2N(JJ)=(F2XX(JJ)*YSIDE-F2YY(JJ)*XSIDE)/DSP
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(X3+X1)
+      F1A(I)=(F1N(II)+F1N(JJ))*DSP*FACTOR
+      F2A(I)=(F2N(II)+F2N(JJ))*DSP*FACTOR
+      GO TO 890
+  880 CONTINUE
+      II=2*I-1
+      JJ=2*I
+      XSIDE=DX(-.5)
+      YSIDE=DY(-.5)
+      DSP=DS(-.5)
+      F1N(II)=(F1XX(II)*YSIDE-F1YY(II)*XSIDE)/DSP
+      F2N(II)=(F2XX(II)*YSIDE-F2YY(II)*XSIDE)/DSP
+      XSIDE=DX(.5)
+      YSIDE=DY(.5)
+      DSP=DS(.5)
+      F1N(JJ)=(F1XX(JJ)*YSIDE-F1YY(JJ)*XSIDE)/DSP
+      F2N(JJ)=(F2XX(JJ)*YSIDE-F2YY(JJ)*XSIDE)/DSP
+      FACTOR=1.0
+      IF (IAXSYM.EQ.1) FACTOR=PI*(.75*X1+1.5*X2-.25*X3)
+      XSIDE=(X2-X1)**2+(Y2-Y1)**2
+      XSIDE=SQRT(XSIDE)*FACTOR
+      IF (IAXSYM.EQ.1) FACTOR=PI*(-.25*X1+1.5*X2+.75*X3)
+      YSIDE=(X3-X2)**2+(Y3-Y2)**2
+      YSIDE=SQRT(YSIDE)*FACTOR
+      F1A(I)=F1N(II)*XSIDE+F1N(JJ)*YSIDE
+      F2A(I)=F2N(II)*XSIDE+F2N(JJ)*YSIDE
+  890 CONTINUE
+      GO TO 910
+  900 CONTINUE
+      CALL EXTRAP (KIND,F1XX)
+      CALL EXTRAP (KIND,F1YY)
+      IF (IFLUX2.EQ.1) THEN
+      CALL EXTRAP (KIND,F2XX)
+      CALL EXTRAP (KIND,F2YY)
+      END IF
+C
+C     OUTPUT BOUNDARY POINT FLUXES
+C
+  910 CONTINUE
+      IF (ILOCE.EQ.1) GO TO 950
+      WRITE (NOUT, 1170) N,CODE(KIND)
+      IF (ISTRES.EQ.0) GO TO 920
+      IF (ISOLID.EQ.1) GO TO 920
+      WRITE (NOUT, 1180)
+      WRITE (NOUT, 1190) (TXX(I),I=1,NSTRS)
+      WRITE (NOUT, 1200) (TYY(I),I=1,NSTRS)
+      WRITE (NOUT, 1210) (TXY(I),I=1,NSTRS)
+      IF (IAXSYM.EQ.1) WRITE (NOUT, 1220) (TZZ(I),I=1,NSTRS)
+      WRITE (NOUT, 1230) (VORT(I),I=1,NSTRS)
+      WRITE (NOUT, 1240) (TN(I),I=1,NSTRS)
+      WRITE (NOUT, 1250) (TS(I),I=1,NSTRS)
+      WRITE (NOUT, 1260) (TSN(I),I=1,NSTRS)
+      WRITE (NOUT, 1270) (FN(I),I=1,NSIDE)
+      WRITE (NOUT, 1280) (FS(I),I=1,NSIDE)
+  920 CONTINUE
+      IF (IHEAT.EQ.0) GO TO 930
+      WRITE (NOUT, 1290)
+      WRITE (NOUT, 1300) (QXX(I),I=1,NSTRS)
+      WRITE (NOUT, 1310) (QYY(I),I=1,NSTRS)
+      WRITE (NOUT, 1320) (QN(I),I=1,NSTRS)
+      WRITE (NOUT, 1330) (QA(I),I=1,NSIDE)
+  930 CONTINUE
+      IF (IFLUX1+IFLUX2.GT.0) WRITE (NOUT, 1340)
+      IF (IFLUX1.EQ.0) GO TO 940
+      WRITE (NOUT, 1350) (F1XX(I),I=1,NSTRS)
+      WRITE (NOUT, 1360) (F1YY(I),I=1,NSTRS)
+      WRITE (NOUT, 1370) (F1N(I),I=1,NSTRS)
+      WRITE (NOUT, 1380) (F1A(I),I=1,NSIDE)
+  940 CONTINUE
+      IF (IFLUX2.EQ.0) GO TO 980
+      WRITE (NOUT, 1390) (F2XX(I),I=1,NSTRS)
+      WRITE (NOUT, 1400) (F2YY(I),I=1,NSTRS)
+      WRITE (NOUT, 1410) (F2N(I),I=1,NSTRS)
+      WRITE (NOUT, 1420) (F2A(I),I=1,NSIDE)
+      GO TO 980
+C
+C     ACCUMULATE EXTRAPOLATED INTEGRATION POINT FLUXES FOR
+C     LATER AVERAGING AT NODES
+C
+  950 CONTINUE
+      DO 970 I=1,NSTRS
+      INODE=ICON(N,I)
+      IF (ISOLID.EQ.1) GO TO 960
+      IF (ISTRES.EQ.1) THEN
+      USAVE(INODE,1)=USAVE(INODE,1)+TXX(I)
+      USAVE(INODE,2)=USAVE(INODE,2)+TYY(I)
+      USAVE(INODE,3)=USAVE(INODE,3)+TXY(I)
+      USAVE(INODE,4)=USAVE(INODE,4)+TZZ(I)
+      USAVE(INODE,5)=USAVE(INODE,5)+VORT(I)
+      END IF
+  960 CONTINUE
+      IF (IHEAT.EQ.1) THEN
+      USAVE(INODE,6)=USAVE(INODE,6)+QXX(I)
+      USAVE(INODE,7)=USAVE(INODE,7)+QYY(I)
+      END IF
+      IF (IFLUX1.EQ.1) THEN
+      USAVE(INODE,8)=USAVE(INODE,8)+F1XX(I)
+      USAVE(INODE,9)=USAVE(INODE,9)+F1YY(I)
+      END IF
+      IF (IFLUX2.EQ.1) THEN
+      USAVE(INODE,10)=USAVE(INODE,10)+F2XX(I)
+      USAVE(INODE,11)=USAVE(INODE,11)+F2YY(I)
+      END IF
+      LISTND(INODE)=LISTND(INODE)+1
+  970 CONTINUE
+  980 CONTINUE
+C
+C     END LOOP ON ELEMENTS
+C
+C     AVERAGE NODAL POINT FLUXES
+C
+      IF (ILOCE.EQ.0) GO TO 1120
+      DO 1000 I=1,NUMNOD
+      NN=LISTND(I)
+      IF (NN.EQ.0) GO TO 1000
+      DO 990 J=1,NFLUX
+      USAVE(I,J)=USAVE(I,J)/NN
+  990 CONTINUE
+ 1000 CONTINUE
+      IF (IWRTP.EQ.1) GO TO 1090
+C
+C     OUTPUT FLUXES
+C
+      WRITE (NOUT, 1470) TIME
+      DO 1080 N=1,NUMEL
+      IF (ILOCM.EQ.1) GO TO 1020
+      DO 1010 I=1,NUM
+      IF (N.EQ.NEL(I)) GO TO 1020
+ 1010 CONTINUE
+      GO TO 1080
+ 1020 CONTINUE
+      NN=ABS(LISTEL(N))
+      KIND=MOD(NN,100)
+      MAT=NN/100
+      ISOLID=0
+      IF (PROP(15,MAT).EQ.3.0) ISOLID=1
+      NSTRS=NNCOR(KIND)
+      WRITE (NOUT, 1170) N,CODE(KIND)
+      IF (ISOLID.EQ.1) GO TO 1040
+      IF (ISTRES.EQ.1) THEN
+      DO 1030 I=1,NSTRS
+      INODE=ICON(N,I)
+      TXX(I)=USAVE(INODE,1)
+      TYY(I)=USAVE(INODE,2)
+      TXY(I)=USAVE(INODE,3)
+      TZZ(I)=USAVE(INODE,4)
+      VORT(I)=USAVE(INODE,5)
+ 1030 CONTINUE
+      WRITE (NOUT, 1180)
+      WRITE (NOUT, 1190) (TXX(I),I=1,NSTRS)
+      WRITE (NOUT, 1200) (TYY(I),I=1,NSTRS)
+      WRITE (NOUT, 1210) (TXY(I),I=1,NSTRS)
+      IF (IAXSYM.EQ.1) WRITE (NOUT, 1220) (TZZ(I),I=1,NSTRS)
+      WRITE (NOUT, 1230) (VORT(I),I=1,NSTRS)
+      END IF
+C
+ 1040 CONTINUE
+      IF (IHEAT.EQ.1) THEN
+      DO 1050 I=1,NSTRS
+      INODE=ICON(N,I)
+      QXX(I)=USAVE(INODE,6)
+      QYY(I)=USAVE(INODE,7)
+ 1050 CONTINUE
+      WRITE (NOUT, 1290)
+      WRITE (NOUT, 1300) (QXX(I),I=1,NSTRS)
+      WRITE (NOUT, 1310) (QYY(I),I=1,NSTRS)
+      END IF
+C
+      IF (IFLUX1+IFLUX2.GT.0) WRITE (NOUT, 1340)
+      IF (IFLUX1.EQ.1) THEN
+      DO 1060 I=1,NSTRS
+      INODE=ICON(N,I)
+      F1XX(I)=USAVE(INODE,8)
+      F1YY(I)=USAVE(INODE,9)
+ 1060 CONTINUE
+      WRITE (NOUT, 1350) (F1XX(I),I=1,NSTRS)
+      WRITE (NOUT, 1360) (F1YY(I),I=1,NSTRS)
+      END IF
+C
+      IF (IFLUX2.EQ.1) THEN
+      DO 1070 I=1,NSTRS
+      INODE=ICON(N,I)
+      F2XX(I)=USAVE(INODE,10)
+      F2YY(I)=USAVE(INODE,11)
+ 1070 CONTINUE
+      WRITE (NOUT, 1390) (F2XX(I),I=1,NSTRS)
+      WRITE (NOUT, 1400) (F2YY(I),I=1,NSTRS)
+      END IF
+ 1080 CONTINUE
+      GO TO 1120
+C
+C     GENERATE FLUX DATA AT MIDSIDE NODES AND WRITE TO TAPE
+C
+ 1090 CONTINUE
+      IF (ISTRES.EQ.1) THEN
+      DO 1100 I=1,5
+      CALL MIDSID (USAVE(1,I),ICON,LISTEL)
+ 1100 CONTINUE
+      NVR=5
+      WRITE (NTP8) TIME,NUMNOD,NVR,((USAVE(I,J),I=1,NUMNOD),J=1,NVR)
+      END IF
+      IF (IHEAT+IFLUX1+IFLUX2.EQ.0) GO TO 1120
+      DO 1110 I=6,11
+      CALL MIDSID (USAVE(1,I),ICON,LISTEL)
+ 1110 CONTINUE
+      NVR=6
+      WRITE (NTP7) TIME,NUMNOD,NVR,((USAVE(I,J),I=1,NUMNOD),J=6,11)
+ 1120 CONTINUE
+C
+C     CHECK FOR COMPLETION OF LOOPING
+C
+      IF (NSTEPS.EQ.0) GO TO 70
+      IF (KOUNT.EQ.NSTEPS) GO TO 80
+      KSTEP=NINC
+      GO TO 170
+ 1130 CONTINUE
+      RETURN
+C
+ 1140 FORMAT (//,10X,'FLUX VALUES ARE CALCULATED ON THE ELEMENT BOUNDARI
+     1ES' ,/,10X,'MIDWAY BETWEEN NODAL POINTS (1/4 AND 3/4 POINTS)',    
+     2/,10X,'REPORTED FLUXES CONSIST OF THE FOLLOWING :',/,10X,         
+     3'A) BASIC X,Y (OR R,Z) FLUX COMPONENTS',/,10X,'B) FLUX COMPONENT N
+     4ORMAL (AND TANGENTIAL, IF APPROPRIATE) TO ELEMENT BOUNDARY',/,10X,
+     5'C) INTEGRATED (NORMAL) FLUX OVER ELEMENT BOUNDARY')
+ 1150 FORMAT (//,10X,'FLUX VALUES ARE CALCULATED AT THE ELEMENT INTEGRAT
+     1ION POINTS' ,/,10X,'(2X2 GAUSS POINTS AND 3 HAMMER POINTS)' ,     
+     2/,10X,'AND (BILINEARLY) EXTRAPOLATED TO THE NODES' ,/,10X,'REPORTE
+     3D NODAL FLUX VALUES ARE AVERAGED FOR ADJOINING ELEMENTS',/,10X,   
+     4'REPORTED FLUXES CONSIST OF THE FOLLOWING :',/,10X,'A) BASIC X,Y (
+     5OR R,Z) FLUX COMPONENTS')
+ 1160 FORMAT (///,10X,'FLUX CALCULATIONS WERE REQUESTED FOR THE FOLLOWIN
+     1G ELEMENTS--' ,/,10X,20I5,/,10X,20I5,/,10X,10I5)
+ 1170 FORMAT (//,10X,'ELEMENT NO.' ,I4,' - ',A8)
+ 1180 FORMAT (/,5X,'STRESSES AND FORCES :')
+ 1190 FORMAT (5X,'TXX',2X,8E15.7)
+ 1200 FORMAT (5X,'TYY',2X,8E15.7)
+ 1210 FORMAT (5X,'TXY',2X,8E15.7)
+ 1220 FORMAT (5X,'TZZ',2X,8E15.7)
+ 1230 FORMAT (4X,'VORT',2X,8E15.7)
+ 1240 FORMAT (5X,'TN ',2X,8E15.7)
+ 1250 FORMAT (5X,'TS ',2X,8E15.7)
+ 1260 FORMAT (5X,'TNS',2X,8E15.7)
+ 1270 FORMAT (5X,'FN ',2X,4(E15.7,15X))
+ 1280 FORMAT (5X,'FS ',2X,4(E15.7,15X))
+ 1290 FORMAT (/,5X,'HEAT FLUXES :')
+ 1300 FORMAT (5X,'QX ',2X,8E15.7)
+ 1310 FORMAT (5X,'QY ',2X,8E15.7)
+ 1320 FORMAT (5X,'QN ',2X,8E15.7)
+ 1330 FORMAT (5X,'QA ',2X,4(E15.7,15X))
+ 1340 FORMAT (/,5X,'AUXILIARY VARIABLE FLUXES :')
+ 1350 FORMAT (5X,'F1X',2X,8E15.7)
+ 1360 FORMAT (5X,'F1Y',2X,8E15.7)
+ 1370 FORMAT (5X,'F1N',2X,8E15.7)
+ 1380 FORMAT (5X,'F1A',2X,4(E15.7,15X))
+ 1390 FORMAT (5X,'F2X',2X,8E15.7)
+ 1400 FORMAT (5X,'F2Y',2X,8E15.7)
+ 1410 FORMAT (5X,'F2N',2X,8E15.7)
+ 1420 FORMAT (5X,'F2A',2X,4(E15.7,15X))
+ 1430 FORMAT (///,10X,'FLUX CALCULATIONS WERE REQUESTED FOR ALL ELEMENTS
+     1, FOR ALL TIME STEPS' ,/,10X,'FLUX VALUES ARE STORED ON TAPE FOR F
+     2OR PLOTTING',/,10X,'NO TABULATED VALUES ARE PRINTED FOR THIS OPTIO
+     3N')
+ 1440 FORMAT (///,10X,'FLUX CALCULATIONS WERE REQUESTED FOR ALL ELEMENTS
+     1 IN THE MESH')
+ 1450 FORMAT (//,10X,'END OF FILE ENCOUNTERED ON SOLUTION FILE, PROCESSI
+     1NG CONTINUES')
+ 1460 FORMAT (//,10X,'CALCULATIONS WERE REQUESTED FOR THE FOLLOWING QUAN
+     1TITIES-' )
+ 1470 FORMAT (///,10X,'CURRENT TIME =' ,E15.7)
+ 1480 FORMAT (15X,'DEVIATORIC STRESSES',/,15X,'VORTICITY')
+ 1490 FORMAT (15X,'HEAT FLUX')
+ 1500 FORMAT (15X,'FLUX-VARIABLE 1')
+ 1510 FORMAT (15X,'FLUX-VARIABLE 2')
+ 1520 FORMAT (//,10X,'FLUX VALUES WERE REQUESTED FOR ALL TIME PLANES' )
+ 1530 FORMAT (//,10X,'FLUX VALUES WERE REQUESTED FOR ' ,I3,' TIME PLANES
+     1' ,/,10X,'BEGINNING WITH TIME PLANE ' ,I3,' AND A TIME PLANE INCRE
+     2MENT OF ' ,I3)
+      END
